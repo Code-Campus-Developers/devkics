@@ -258,10 +258,10 @@ export const players: Player[] = teams.flatMap((team, ti) =>
     return {
       id: `pl-${team.id}-${pi + 1}`,
       teamId: team.id,
-      name: `${firstNames[(seed * 5) % firstNames.length]} ${lastNames[(seed * 7) % lastNames.length]}`,
-      position: positions[pi],
+      name: `${firstNames[(seed * 5) % firstNames.length]!} ${lastNames[(seed * 7) % lastNames.length]!}`,
+      position: positions[pi]!,
       number: pi + 1,
-      role: jobRoles[(seed * 3) % jobRoles.length],
+      role: jobRoles[(seed * 3) % jobRoles.length]!,
       status: "active" as const,
       goals: pi > 6 ? (seed % 5) : (seed % 2),
       assists: pi > 4 ? (seed % 3) : 0,
@@ -423,9 +423,9 @@ export const media: MediaItem[] = Array.from({ length: 9 }, (_, i) => ({
     "Post-match handshake",
     "Free-kick routine",
     "Supporters at the touchline",
-  ][i],
+  ][i]!,
   kind: i % 4 === 3 ? "highlight" : "photo",
-  hue: [148, 350, 28, 148, 350, 28, 148, 28, 350][i],
+  hue: [148, 350, 28, 148, 350, 28, 148, 28, 350][i]!,
 }));
 
 export const applications: Application[] = [
