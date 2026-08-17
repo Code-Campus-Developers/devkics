@@ -56,7 +56,7 @@ export function TeamCrest({
     <span
       className={cn(
         "grid shrink-0 place-items-center rounded-xl font-display font-bold uppercase ring-1",
-        crestTone[team.color] ?? crestTone.green,
+        crestTone[team.color] ?? crestTone['green'],
         size === "sm" && "size-8 text-[11px]",
         size === "md" && "size-11 text-sm",
         size === "lg" && "size-16 text-lg",
