@@ -10,33 +10,167 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as CityRouteImport } from './routes/$city'
+import { Route as CitiesRouteImport } from './routes/cities'
+import { Route as CityIndexRouteImport } from './routes/$city.index'
+import { Route as CityFixturesRouteImport } from './routes/$city.fixtures'
+import { Route as CityPlayersRouteImport } from './routes/$city.players'
+import { Route as CityResultsRouteImport } from './routes/$city.results'
+import { Route as CityStandingsRouteImport } from './routes/$city.standings'
+import { Route as CityTeamsRouteImport } from './routes/$city.teams'
+import { Route as CityTournamentRouteImport } from './routes/$city.tournament'
+import { Route as CityTeamsIndexRouteImport } from './routes/$city.teams.index'
+import { Route as CityTeamsTeamIdRouteImport } from './routes/$city.teams.$teamId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CityRoute = CityRouteImport.update({
+  id: '/$city',
+  path: '/$city',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CitiesRoute = CitiesRouteImport.update({
+  id: '/cities',
+  path: '/cities',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CityIndexRoute = CityIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => CityRoute,
+} as any)
+const CityFixturesRoute = CityFixturesRouteImport.update({
+  id: '/fixtures',
+  path: '/fixtures',
+  getParentRoute: () => CityRoute,
+} as any)
+const CityPlayersRoute = CityPlayersRouteImport.update({
+  id: '/players',
+  path: '/players',
+  getParentRoute: () => CityRoute,
+} as any)
+const CityResultsRoute = CityResultsRouteImport.update({
+  id: '/results',
+  path: '/results',
+  getParentRoute: () => CityRoute,
+} as any)
+const CityStandingsRoute = CityStandingsRouteImport.update({
+  id: '/standings',
+  path: '/standings',
+  getParentRoute: () => CityRoute,
+} as any)
+const CityTeamsRoute = CityTeamsRouteImport.update({
+  id: '/teams',
+  path: '/teams',
+  getParentRoute: () => CityRoute,
+} as any)
+const CityTournamentRoute = CityTournamentRouteImport.update({
+  id: '/tournament',
+  path: '/tournament',
+  getParentRoute: () => CityRoute,
+} as any)
+const CityTeamsIndexRoute = CityTeamsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => CityTeamsRoute,
+} as any)
+const CityTeamsTeamIdRoute = CityTeamsTeamIdRouteImport.update({
+  id: '/$teamId',
+  path: '/$teamId',
+  getParentRoute: () => CityTeamsRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/$city': typeof CityRouteWithChildren
+  '/cities': typeof CitiesRoute
+  '/$city/fixtures': typeof CityFixturesRoute
+  '/$city/players': typeof CityPlayersRoute
+  '/$city/results': typeof CityResultsRoute
+  '/$city/standings': typeof CityStandingsRoute
+  '/$city/teams': typeof CityTeamsRouteWithChildren
+  '/$city/tournament': typeof CityTournamentRoute
+  '/$city/': typeof CityIndexRoute
+  '/$city/teams/$teamId': typeof CityTeamsTeamIdRoute
+  '/$city/teams/': typeof CityTeamsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/cities': typeof CitiesRoute
+  '/$city/fixtures': typeof CityFixturesRoute
+  '/$city/players': typeof CityPlayersRoute
+  '/$city/results': typeof CityResultsRoute
+  '/$city/standings': typeof CityStandingsRoute
+  '/$city/tournament': typeof CityTournamentRoute
+  '/$city': typeof CityIndexRoute
+  '/$city/teams/$teamId': typeof CityTeamsTeamIdRoute
+  '/$city/teams': typeof CityTeamsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/$city': typeof CityRouteWithChildren
+  '/cities': typeof CitiesRoute
+  '/$city/fixtures': typeof CityFixturesRoute
+  '/$city/players': typeof CityPlayersRoute
+  '/$city/results': typeof CityResultsRoute
+  '/$city/standings': typeof CityStandingsRoute
+  '/$city/teams': typeof CityTeamsRouteWithChildren
+  '/$city/tournament': typeof CityTournamentRoute
+  '/$city/': typeof CityIndexRoute
+  '/$city/teams/$teamId': typeof CityTeamsTeamIdRoute
+  '/$city/teams/': typeof CityTeamsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/$city'
+    | '/cities'
+    | '/$city/fixtures'
+    | '/$city/players'
+    | '/$city/results'
+    | '/$city/standings'
+    | '/$city/teams'
+    | '/$city/tournament'
+    | '/$city/'
+    | '/$city/teams/$teamId'
+    | '/$city/teams/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/cities'
+    | '/$city/fixtures'
+    | '/$city/players'
+    | '/$city/results'
+    | '/$city/standings'
+    | '/$city/tournament'
+    | '/$city'
+    | '/$city/teams/$teamId'
+    | '/$city/teams'
+  id:
+    | '__root__'
+    | '/'
+    | '/$city'
+    | '/cities'
+    | '/$city/fixtures'
+    | '/$city/players'
+    | '/$city/results'
+    | '/$city/standings'
+    | '/$city/teams'
+    | '/$city/tournament'
+    | '/$city/'
+    | '/$city/teams/$teamId'
+    | '/$city/teams/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  CityRoute: typeof CityRouteWithChildren
+  CitiesRoute: typeof CitiesRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,11 +182,126 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/$city': {
+      id: '/$city'
+      path: '/$city'
+      fullPath: '/$city'
+      preLoaderRoute: typeof CityRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/cities': {
+      id: '/cities'
+      path: '/cities'
+      fullPath: '/cities'
+      preLoaderRoute: typeof CitiesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/$city/': {
+      id: '/$city/'
+      path: '/'
+      fullPath: '/$city/'
+      preLoaderRoute: typeof CityIndexRouteImport
+      parentRoute: typeof CityRoute
+    }
+    '/$city/fixtures': {
+      id: '/$city/fixtures'
+      path: '/fixtures'
+      fullPath: '/$city/fixtures'
+      preLoaderRoute: typeof CityFixturesRouteImport
+      parentRoute: typeof CityRoute
+    }
+    '/$city/players': {
+      id: '/$city/players'
+      path: '/players'
+      fullPath: '/$city/players'
+      preLoaderRoute: typeof CityPlayersRouteImport
+      parentRoute: typeof CityRoute
+    }
+    '/$city/results': {
+      id: '/$city/results'
+      path: '/results'
+      fullPath: '/$city/results'
+      preLoaderRoute: typeof CityResultsRouteImport
+      parentRoute: typeof CityRoute
+    }
+    '/$city/standings': {
+      id: '/$city/standings'
+      path: '/standings'
+      fullPath: '/$city/standings'
+      preLoaderRoute: typeof CityStandingsRouteImport
+      parentRoute: typeof CityRoute
+    }
+    '/$city/teams': {
+      id: '/$city/teams'
+      path: '/teams'
+      fullPath: '/$city/teams'
+      preLoaderRoute: typeof CityTeamsRouteImport
+      parentRoute: typeof CityRoute
+    }
+    '/$city/tournament': {
+      id: '/$city/tournament'
+      path: '/tournament'
+      fullPath: '/$city/tournament'
+      preLoaderRoute: typeof CityTournamentRouteImport
+      parentRoute: typeof CityRoute
+    }
+    '/$city/teams/': {
+      id: '/$city/teams/'
+      path: '/'
+      fullPath: '/$city/teams/'
+      preLoaderRoute: typeof CityTeamsIndexRouteImport
+      parentRoute: typeof CityTeamsRoute
+    }
+    '/$city/teams/$teamId': {
+      id: '/$city/teams/$teamId'
+      path: '/$teamId'
+      fullPath: '/$city/teams/$teamId'
+      preLoaderRoute: typeof CityTeamsTeamIdRouteImport
+      parentRoute: typeof CityTeamsRoute
+    }
   }
 }
 
+interface CityTeamsRouteChildren {
+  CityTeamsTeamIdRoute: typeof CityTeamsTeamIdRoute
+  CityTeamsIndexRoute: typeof CityTeamsIndexRoute
+}
+
+const CityTeamsRouteChildren: CityTeamsRouteChildren = {
+  CityTeamsTeamIdRoute: CityTeamsTeamIdRoute,
+  CityTeamsIndexRoute: CityTeamsIndexRoute,
+}
+
+const CityTeamsRouteWithChildren = CityTeamsRoute._addFileChildren(
+  CityTeamsRouteChildren,
+)
+
+interface CityRouteChildren {
+  CityFixturesRoute: typeof CityFixturesRoute
+  CityPlayersRoute: typeof CityPlayersRoute
+  CityResultsRoute: typeof CityResultsRoute
+  CityStandingsRoute: typeof CityStandingsRoute
+  CityTeamsRoute: typeof CityTeamsRouteWithChildren
+  CityTournamentRoute: typeof CityTournamentRoute
+  CityIndexRoute: typeof CityIndexRoute
+}
+
+const CityRouteChildren: CityRouteChildren = {
+  CityFixturesRoute: CityFixturesRoute,
+  CityPlayersRoute: CityPlayersRoute,
+  CityResultsRoute: CityResultsRoute,
+  CityStandingsRoute: CityStandingsRoute,
+  CityTeamsRoute: CityTeamsRouteWithChildren,
+  CityTournamentRoute: CityTournamentRoute,
+  CityIndexRoute: CityIndexRoute,
+}
+
+const CityRouteWithChildren = CityRoute._addFileChildren(CityRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  CityRoute: CityRouteWithChildren,
+  CitiesRoute: CitiesRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
