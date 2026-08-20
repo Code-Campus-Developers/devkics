@@ -75,7 +75,7 @@ function Home() {
                 variant="outline"
                 className="rounded-full border-pitch-foreground/25 bg-transparent px-7 text-pitch-foreground hover:bg-primary-foreground/10 hover:text-pitch-foreground"
               >
-                <Link to="/abuja">Explore Abuja</Link>
+                <Link to="/$city" params={{ city: "abuja" }}>Explore Abuja</Link>
               </Button>
             </div>
             <dl className="mt-14 grid max-w-2xl grid-cols-3 gap-6 border-t border-pitch-foreground/15 pt-8">
@@ -102,7 +102,7 @@ function Home() {
           description={tournament.summary}
           action={
             <Button asChild variant="outline" className="rounded-full">
-              <Link to="/abuja">City portal</Link>
+              <Link to="/$city" params={{ city: "abuja" }}>City portal</Link>
             </Button>
           }
         />
@@ -112,7 +112,8 @@ function Home() {
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold">Standings</h3>
               <Link
-                to="/abuja/standings"
+                to="/$city/standings"
+                params={{ city: "abuja" }}
                 className="text-sm font-medium text-primary hover:underline"
               >
                 Full table
@@ -141,7 +142,8 @@ function Home() {
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold">Next up</h3>
               <Link
-                to="/abuja/fixtures"
+                to="/$city/fixtures"
+                params={{ city: "abuja" }}
                 className="text-sm font-medium text-primary hover:underline"
               >
                 Fixtures
