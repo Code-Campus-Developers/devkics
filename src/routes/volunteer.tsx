@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Camera, ClipboardList, Megaphone, Whistle } from "lucide-react";
+import { Camera, ClipboardList, Megaphone, Flag } from "lucide-react";
 
 import { PageHeader } from "@/components/devkics/brand";
 import { ApplicationForm } from "@/components/devkics/application-form";
@@ -24,7 +24,7 @@ export const Route = createFileRoute("/volunteer")({
 });
 
 const roles = [
-  { icon: Whistle, title: "Match official", body: "Referee or assist on matchday. Training provided." },
+  { icon: Flag, title: "Match official", body: "Referee or assist on matchday. Training provided." },
   { icon: Camera, title: "Media crew", body: "Shoot photos and highlights for the city gallery." },
   { icon: ClipboardList, title: "Matchday coordinator", body: "Run check-in, kits and timekeeping." },
   { icon: Megaphone, title: "Comms & social", body: "Live scores, recaps and community updates." },
