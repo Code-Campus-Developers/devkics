@@ -12,10 +12,15 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as CityRouteImport } from './routes/$city'
 import { Route as CitiesRouteImport } from './routes/cities'
+import { Route as OrganizeRouteImport } from './routes/organize'
+import { Route as VolunteerRouteImport } from './routes/volunteer'
 import { Route as CityIndexRouteImport } from './routes/$city.index'
 import { Route as CityFixturesRouteImport } from './routes/$city.fixtures'
+import { Route as CityGalleryRouteImport } from './routes/$city.gallery'
+import { Route as CityNewsRouteImport } from './routes/$city.news'
 import { Route as CityPlayersRouteImport } from './routes/$city.players'
 import { Route as CityResultsRouteImport } from './routes/$city.results'
+import { Route as CitySponsorsRouteImport } from './routes/$city.sponsors'
 import { Route as CityStandingsRouteImport } from './routes/$city.standings'
 import { Route as CityTeamsRouteImport } from './routes/$city.teams'
 import { Route as CityTournamentRouteImport } from './routes/$city.tournament'
@@ -37,6 +42,16 @@ const CitiesRoute = CitiesRouteImport.update({
   path: '/cities',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OrganizeRoute = OrganizeRouteImport.update({
+  id: '/organize',
+  path: '/organize',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const VolunteerRoute = VolunteerRouteImport.update({
+  id: '/volunteer',
+  path: '/volunteer',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CityIndexRoute = CityIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -47,6 +62,16 @@ const CityFixturesRoute = CityFixturesRouteImport.update({
   path: '/fixtures',
   getParentRoute: () => CityRoute,
 } as any)
+const CityGalleryRoute = CityGalleryRouteImport.update({
+  id: '/gallery',
+  path: '/gallery',
+  getParentRoute: () => CityRoute,
+} as any)
+const CityNewsRoute = CityNewsRouteImport.update({
+  id: '/news',
+  path: '/news',
+  getParentRoute: () => CityRoute,
+} as any)
 const CityPlayersRoute = CityPlayersRouteImport.update({
   id: '/players',
   path: '/players',
@@ -55,6 +80,11 @@ const CityPlayersRoute = CityPlayersRouteImport.update({
 const CityResultsRoute = CityResultsRouteImport.update({
   id: '/results',
   path: '/results',
+  getParentRoute: () => CityRoute,
+} as any)
+const CitySponsorsRoute = CitySponsorsRouteImport.update({
+  id: '/sponsors',
+  path: '/sponsors',
   getParentRoute: () => CityRoute,
 } as any)
 const CityStandingsRoute = CityStandingsRouteImport.update({
@@ -87,9 +117,14 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/$city': typeof CityRouteWithChildren
   '/cities': typeof CitiesRoute
+  '/organize': typeof OrganizeRoute
+  '/volunteer': typeof VolunteerRoute
   '/$city/fixtures': typeof CityFixturesRoute
+  '/$city/gallery': typeof CityGalleryRoute
+  '/$city/news': typeof CityNewsRoute
   '/$city/players': typeof CityPlayersRoute
   '/$city/results': typeof CityResultsRoute
+  '/$city/sponsors': typeof CitySponsorsRoute
   '/$city/standings': typeof CityStandingsRoute
   '/$city/teams': typeof CityTeamsRouteWithChildren
   '/$city/tournament': typeof CityTournamentRoute
@@ -100,9 +135,14 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/cities': typeof CitiesRoute
+  '/organize': typeof OrganizeRoute
+  '/volunteer': typeof VolunteerRoute
   '/$city/fixtures': typeof CityFixturesRoute
+  '/$city/gallery': typeof CityGalleryRoute
+  '/$city/news': typeof CityNewsRoute
   '/$city/players': typeof CityPlayersRoute
   '/$city/results': typeof CityResultsRoute
+  '/$city/sponsors': typeof CitySponsorsRoute
   '/$city/standings': typeof CityStandingsRoute
   '/$city/tournament': typeof CityTournamentRoute
   '/$city': typeof CityIndexRoute
@@ -114,9 +154,14 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/$city': typeof CityRouteWithChildren
   '/cities': typeof CitiesRoute
+  '/organize': typeof OrganizeRoute
+  '/volunteer': typeof VolunteerRoute
   '/$city/fixtures': typeof CityFixturesRoute
+  '/$city/gallery': typeof CityGalleryRoute
+  '/$city/news': typeof CityNewsRoute
   '/$city/players': typeof CityPlayersRoute
   '/$city/results': typeof CityResultsRoute
+  '/$city/sponsors': typeof CitySponsorsRoute
   '/$city/standings': typeof CityStandingsRoute
   '/$city/teams': typeof CityTeamsRouteWithChildren
   '/$city/tournament': typeof CityTournamentRoute
@@ -130,9 +175,14 @@ export interface FileRouteTypes {
     | '/'
     | '/$city'
     | '/cities'
+    | '/organize'
+    | '/volunteer'
     | '/$city/fixtures'
+    | '/$city/gallery'
+    | '/$city/news'
     | '/$city/players'
     | '/$city/results'
+    | '/$city/sponsors'
     | '/$city/standings'
     | '/$city/teams'
     | '/$city/tournament'
@@ -143,9 +193,14 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/cities'
+    | '/organize'
+    | '/volunteer'
     | '/$city/fixtures'
+    | '/$city/gallery'
+    | '/$city/news'
     | '/$city/players'
     | '/$city/results'
+    | '/$city/sponsors'
     | '/$city/standings'
     | '/$city/tournament'
     | '/$city'
@@ -156,9 +211,14 @@ export interface FileRouteTypes {
     | '/'
     | '/$city'
     | '/cities'
+    | '/organize'
+    | '/volunteer'
     | '/$city/fixtures'
+    | '/$city/gallery'
+    | '/$city/news'
     | '/$city/players'
     | '/$city/results'
+    | '/$city/sponsors'
     | '/$city/standings'
     | '/$city/teams'
     | '/$city/tournament'
@@ -171,6 +231,8 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CityRoute: typeof CityRouteWithChildren
   CitiesRoute: typeof CitiesRoute
+  OrganizeRoute: typeof OrganizeRoute
+  VolunteerRoute: typeof VolunteerRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -196,6 +258,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CitiesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/organize': {
+      id: '/organize'
+      path: '/organize'
+      fullPath: '/organize'
+      preLoaderRoute: typeof OrganizeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/volunteer': {
+      id: '/volunteer'
+      path: '/volunteer'
+      fullPath: '/volunteer'
+      preLoaderRoute: typeof VolunteerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/$city/': {
       id: '/$city/'
       path: '/'
@@ -210,6 +286,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CityFixturesRouteImport
       parentRoute: typeof CityRoute
     }
+    '/$city/gallery': {
+      id: '/$city/gallery'
+      path: '/gallery'
+      fullPath: '/$city/gallery'
+      preLoaderRoute: typeof CityGalleryRouteImport
+      parentRoute: typeof CityRoute
+    }
+    '/$city/news': {
+      id: '/$city/news'
+      path: '/news'
+      fullPath: '/$city/news'
+      preLoaderRoute: typeof CityNewsRouteImport
+      parentRoute: typeof CityRoute
+    }
     '/$city/players': {
       id: '/$city/players'
       path: '/players'
@@ -222,6 +312,13 @@ declare module '@tanstack/react-router' {
       path: '/results'
       fullPath: '/$city/results'
       preLoaderRoute: typeof CityResultsRouteImport
+      parentRoute: typeof CityRoute
+    }
+    '/$city/sponsors': {
+      id: '/$city/sponsors'
+      path: '/sponsors'
+      fullPath: '/$city/sponsors'
+      preLoaderRoute: typeof CitySponsorsRouteImport
       parentRoute: typeof CityRoute
     }
     '/$city/standings': {
@@ -278,8 +375,11 @@ const CityTeamsRouteWithChildren = CityTeamsRoute._addFileChildren(
 
 interface CityRouteChildren {
   CityFixturesRoute: typeof CityFixturesRoute
+  CityGalleryRoute: typeof CityGalleryRoute
+  CityNewsRoute: typeof CityNewsRoute
   CityPlayersRoute: typeof CityPlayersRoute
   CityResultsRoute: typeof CityResultsRoute
+  CitySponsorsRoute: typeof CitySponsorsRoute
   CityStandingsRoute: typeof CityStandingsRoute
   CityTeamsRoute: typeof CityTeamsRouteWithChildren
   CityTournamentRoute: typeof CityTournamentRoute
@@ -288,8 +388,11 @@ interface CityRouteChildren {
 
 const CityRouteChildren: CityRouteChildren = {
   CityFixturesRoute: CityFixturesRoute,
+  CityGalleryRoute: CityGalleryRoute,
+  CityNewsRoute: CityNewsRoute,
   CityPlayersRoute: CityPlayersRoute,
   CityResultsRoute: CityResultsRoute,
+  CitySponsorsRoute: CitySponsorsRoute,
   CityStandingsRoute: CityStandingsRoute,
   CityTeamsRoute: CityTeamsRouteWithChildren,
   CityTournamentRoute: CityTournamentRoute,
@@ -302,6 +405,8 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CityRoute: CityRouteWithChildren,
   CitiesRoute: CitiesRoute,
+  OrganizeRoute: OrganizeRoute,
+  VolunteerRoute: VolunteerRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
