@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as CityRouteImport } from './routes/$city'
+import { Route as AuthRouteImport } from './routes/auth'
 import { Route as CitiesRouteImport } from './routes/cities'
 import { Route as OrganizeRouteImport } from './routes/organize'
 import { Route as VolunteerRouteImport } from './routes/volunteer'
@@ -35,6 +36,11 @@ const IndexRoute = IndexRouteImport.update({
 const CityRoute = CityRouteImport.update({
   id: '/$city',
   path: '/$city',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthRoute = AuthRouteImport.update({
+  id: '/auth',
+  path: '/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CitiesRoute = CitiesRouteImport.update({
@@ -116,6 +122,7 @@ const CityTeamsTeamIdRoute = CityTeamsTeamIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/$city': typeof CityRouteWithChildren
+  '/auth': typeof AuthRoute
   '/cities': typeof CitiesRoute
   '/organize': typeof OrganizeRoute
   '/volunteer': typeof VolunteerRoute
@@ -134,6 +141,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/auth': typeof AuthRoute
   '/cities': typeof CitiesRoute
   '/organize': typeof OrganizeRoute
   '/volunteer': typeof VolunteerRoute
@@ -153,6 +161,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/$city': typeof CityRouteWithChildren
+  '/auth': typeof AuthRoute
   '/cities': typeof CitiesRoute
   '/organize': typeof OrganizeRoute
   '/volunteer': typeof VolunteerRoute
@@ -174,6 +183,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/$city'
+    | '/auth'
     | '/cities'
     | '/organize'
     | '/volunteer'
@@ -192,6 +202,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/auth'
     | '/cities'
     | '/organize'
     | '/volunteer'
@@ -210,6 +221,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/$city'
+    | '/auth'
     | '/cities'
     | '/organize'
     | '/volunteer'
@@ -230,6 +242,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CityRoute: typeof CityRouteWithChildren
+  AuthRoute: typeof AuthRoute
   CitiesRoute: typeof CitiesRoute
   OrganizeRoute: typeof OrganizeRoute
   VolunteerRoute: typeof VolunteerRoute
@@ -249,6 +262,13 @@ declare module '@tanstack/react-router' {
       path: '/$city'
       fullPath: '/$city'
       preLoaderRoute: typeof CityRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auth': {
+      id: '/auth'
+      path: '/auth'
+      fullPath: '/auth'
+      preLoaderRoute: typeof AuthRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/cities': {
@@ -404,6 +424,7 @@ const CityRouteWithChildren = CityRoute._addFileChildren(CityRouteChildren)
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CityRoute: CityRouteWithChildren,
+  AuthRoute: AuthRoute,
   CitiesRoute: CitiesRoute,
   OrganizeRoute: OrganizeRoute,
   VolunteerRoute: VolunteerRoute,
