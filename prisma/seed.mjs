@@ -1,4 +1,15 @@
-import { PrismaClient, Role, CityStatus, OrganizerApplicationStatus } from "@prisma/client";
+import {
+  PrismaClient,
+  Role,
+  CityStatus,
+  OrganizerApplicationStatus,
+  OrganizationStatus,
+  TournamentStatus,
+  TeamStatus,
+  PlayerStatus,
+  MatchStatus,
+  MatchStage,
+} from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import bcrypt from "bcryptjs";
 
@@ -94,6 +105,19 @@ const users = [
 ];
 
 async function main() {
+  await prisma.awardAssignment.deleteMany();
+  await prisma.award.deleteMany();
+  await prisma.knockoutLink.deleteMany();
+  await prisma.knockoutRound.deleteMany();
+  await prisma.standing.deleteMany();
+  await prisma.matchEvent.deleteMany();
+  await prisma.match.deleteMany();
+  await prisma.fixture.deleteMany();
+  await prisma.player.deleteMany();
+  await prisma.team.deleteMany();
+  await prisma.group.deleteMany();
+  await prisma.tournament.deleteMany();
+  await prisma.organization.deleteMany();
   await prisma.auditLog.deleteMany();
   await prisma.organizerApplication.deleteMany();
   await prisma.roleAssignment.deleteMany();
@@ -127,6 +151,137 @@ async function main() {
         cityId: city?.id,
         countryCode: city?.countryCode,
       },
+    });
+  }
+
+  const abuja = createdCities.find((city) => city.slug === "abuja");
+  const manager = await prisma.user.findUnique({ where: { email: "manager@devkics.com" } });
+
+  if (abuja && manager) {
+    const organization = await prisma.organization.create({
+      data: {
+        cityId: abuja.id,
+        ownerUserId: manager.id,
+        name: "Interswitch Engineering",
+        slug: "interswitch-engineering",
+        email: "interswitch@devkics.com",
+        description: "Engineering organization behind one of the inaugural teams.",
+        status: OrganizationStatus.APPROVED,
+      },
+    });
+
+    const tournament = await prisma.tournament.create({
+      data: {
+        cityId: abuja.id,
+        updatedByUserId: manager.id,
+        name: "DevKics Abuja Cup",
+        slug: "abuja-cup-season-1",
+        season: "Season 1",
+        format: "Group + Knockout",
+        venue: "Jabi Astro Turf",
+        summary: "Pilot tournament for DevKics city chapters.",
+        status: TournamentStatus.ONGOING,
+        startDate: new Date("2026-08-01T00:00:00.000Z"),
+        endDate: new Date("2026-10-01T00:00:00.000Z"),
+        tieBreakers: ["points", "goalDifference", "goalsFor"],
+      },
+    });
+
+    const groupA = await prisma.group.create({
+      data: {
+        tournamentId: tournament.id,
+        name: "A",
+        sortOrder: 1,
+      },
+    });
+
+    const teamOne = await prisma.team.create({
+      data: {
+        tournamentId: tournament.id,
+        organizationId: organization.id,
+        groupId: groupA.id,
+        managerUserId: manager.id,
+        name: "Interswitch Devs",
+        shortName: "ISW",
+        company: "Interswitch",
+        color: "green",
+        founded: "2026",
+        status: TeamStatus.APPROVED,
+      },
+    });
+
+    const teamTwo = await prisma.team.create({
+      data: {
+        tournamentId: tournament.id,
+        organizationId: organization.id,
+        groupId: groupA.id,
+        managerUserId: manager.id,
+        name: "Interswitch QA",
+        shortName: "IQA",
+        company: "Interswitch",
+        color: "wine",
+        founded: "2026",
+        status: TeamStatus.APPROVED,
+      },
+    });
+
+    const player = await prisma.player.create({
+      data: {
+        teamId: teamOne.id,
+        userId: manager.id,
+        fullName: "Manager Captain",
+        email: manager.email,
+        position: "MID",
+        number: 10,
+        role: "Software Engineer",
+        status: PlayerStatus.APPROVED,
+        waiverAcceptedAt: new Date(),
+      },
+    });
+
+    const fixture = await prisma.fixture.create({
+      data: {
+        tournamentId: tournament.id,
+        groupId: groupA.id,
+        homeTeamId: teamOne.id,
+        awayTeamId: teamTwo.id,
+        stage: MatchStage.GROUP,
+        matchday: 1,
+        kickoffAt: new Date("2026-08-05T10:00:00.000Z"),
+        venue: "Jabi Astro Turf",
+        status: MatchStatus.COMPLETED,
+        isPublished: true,
+      },
+    });
+
+    await prisma.match.create({
+      data: {
+        fixtureId: fixture.id,
+        homeScore: 2,
+        awayScore: 1,
+        reviewerUserId: manager.id,
+        verifiedAt: new Date(),
+      },
+    });
+
+    await prisma.matchEvent.createMany({
+      data: [
+        {
+          matchId: (await prisma.match.findUnique({ where: { fixtureId: fixture.id } })).id,
+          type: "GOAL",
+          teamId: teamOne.id,
+          playerId: player.id,
+          period: "regular",
+          minute: 12,
+        },
+        {
+          matchId: (await prisma.match.findUnique({ where: { fixtureId: fixture.id } })).id,
+          type: "GOAL",
+          teamId: teamTwo.id,
+          period: "regular",
+          minute: 50,
+        },
+      ],
     });
   }
 

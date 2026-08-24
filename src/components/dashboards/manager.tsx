@@ -21,12 +21,32 @@ import { computeStandings } from "@/lib/devkics/standings";
 import type { Player } from "@/lib/devkics/types";
 
 export function ManagerDashboard() {
-  const { currentUser, teams, players, fixtures, createTeam, addPlayer, removePlayer } =
-    useDevKics();
+  const {
+    currentUser,
+    teams,
+    players,
+    fixtures,
+    organizations,
+    submitApplication,
+    createTeam,
+    addPlayer,
+    removePlayer,
+  } = useDevKics();
   const team = teams.find(
     (t) => t.id === currentUser?.teamId || t.managerUserId === currentUser?.id,
   );
+  const approvedOrganization = organizations.find(
+    (organization) => organization.status === "approved",
+  );
+  const pendingOrganization = organizations.find(
+    (organization) => organization.status !== "approved",
+  );
   const [newTeam, setNewTeam] = useState({ name: "", shortName: "", company: "", group: "A" });
+  const [organizationForm, setOrganizationForm] = useState({
+    name: "",
+    email: currentUser?.email ?? "",
+    detail: "",
+  });
   const [newPlayer, setNewPlayer] = useState({
     name: "",
     position: "MID" as Player["position"],
@@ -35,6 +55,79 @@ export function ManagerDashboard() {
   });
 
   if (!team) {
+    if (!approvedOrganization) {
+      return (
+        <div className="mx-auto max-w-xl">
+          <SectionHeading
+            title="Register your organization"
+            description="Phase 2 requires an approved organization before team registration can continue."
+          />
+          <form
+            className="mt-8 space-y-5 rounded-3xl border border-border bg-card p-7"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              try {
+                await submitApplication({
+                  kind: "team",
+                  name: organizationForm.name,
+                  email: organizationForm.email,
+                  city: currentUser?.citySlug ?? "abuja",
+                  detail: organizationForm.detail,
+                });
+                toast.success("Organization submitted for review");
+              } catch (error) {
+                toast.error(
+                  error instanceof Error ? error.message : "Unable to submit organization",
+                );
+              }
+            }}
+          >
+            <div className="space-y-2">
+              <Label>Organization name</Label>
+              <Input
+                required
+                value={organizationForm.name}
+                onChange={(e) => setOrganizationForm({ ...organizationForm, name: e.target.value })}
+                placeholder="Interswitch Engineering"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Organization contact email</Label>
+              <Input
+                required
+                type="email"
+                value={organizationForm.email}
+                onChange={(e) =>
+                  setOrganizationForm({ ...organizationForm, email: e.target.value })
+                }
+                placeholder="you@company.com"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Description</Label>
+              <Input
+                required
+                value={organizationForm.detail}
+                onChange={(e) =>
+                  setOrganizationForm({ ...organizationForm, detail: e.target.value })
+                }
+                placeholder="Your team, community profile, and readiness"
+              />
+            </div>
+            <Button type="submit" size="lg" className="w-full rounded-full">
+              Submit organization
+            </Button>
+          </form>
+          {pendingOrganization && (
+            <p className="mt-4 rounded-2xl border border-border bg-card p-4 text-sm text-muted-foreground">
+              Current status: {pendingOrganization.status.replace("-", " ")}. Team creation unlocks
+              after approval.
+            </p>
+          )}
+        </div>
+      );
+    }
+
     return (
       <div className="mx-auto max-w-xl">
         <SectionHeading
@@ -43,10 +136,14 @@ export function ManagerDashboard() {
         />
         <form
           className="mt-8 space-y-5 rounded-3xl border border-border bg-card p-7"
-          onSubmit={(e) => {
+          onSubmit={async (e) => {
             e.preventDefault();
-            createTeam(newTeam);
-            toast.success("Team created");
+            try {
+              await createTeam(newTeam);
+              toast.success("Team registration submitted");
+            } catch (error) {
+              toast.error(error instanceof Error ? error.message : "Unable to create team");
+            }
           }}
         >
           <div className="space-y-2">
@@ -118,9 +215,14 @@ export function ManagerDashboard() {
       number: Number(newPlayer.number) || squad.length + 1,
       role: newPlayer.role || "Team member",
       status,
-    });
-    setNewPlayer({ name: "", position: "MID", number: "", role: "" });
-    toast.success(status === "invited" ? "Invitation sent" : "Player added to squad");
+    })
+      .then(() => {
+        setNewPlayer({ name: "", position: "MID", number: "", role: "" });
+        toast.success(status === "invited" ? "Invitation sent" : "Player registration submitted");
+      })
+      .catch((error) => {
+        toast.error(error instanceof Error ? error.message : "Unable to add player");
+      });
   };
 
   return (
@@ -237,9 +339,15 @@ export function ManagerDashboard() {
                   size="icon"
                   variant="ghost"
                   aria-label={`Remove ${p.name}`}
-                  onClick={() => {
-                    removePlayer(p.id);
-                    toast(`${p.name} removed from squad`);
+                  onClick={async () => {
+                    try {
+                      await removePlayer(p.id);
+                      toast(`${p.name} removed from squad`);
+                    } catch (error) {
+                      toast.error(
+                        error instanceof Error ? error.message : "Unable to remove player",
+                      );
+                    }
                   }}
                 >
                   <Trash2 className="size-4" />

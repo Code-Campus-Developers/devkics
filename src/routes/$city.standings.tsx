@@ -21,7 +21,7 @@ export const Route = createFileRoute("/$city/standings")({
 
 function StandingsPage() {
   const { city } = Route.useParams();
-  const { teams, fixtures } = useDevKics();
+  const { teams, fixtures, standings } = useDevKics();
 
   return (
     <div>
@@ -31,7 +31,7 @@ function StandingsPage() {
         description="Top two from each group qualify for the semi-finals."
       />
       <div className="mt-10">
-        <StandingsTable teams={teams} fixtures={fixtures} citySlug={city} />
+        <StandingsTable teams={teams} fixtures={fixtures} citySlug={city} rows={standings} />
       </div>
       <p className="mt-4 text-xs text-muted-foreground">
         Highlighted rows indicate current qualification positions.

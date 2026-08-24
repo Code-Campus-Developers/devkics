@@ -10,7 +10,7 @@ export interface City {
   name: string;
   country: string;
   countryCode: string;
-  status: "live" | "coming-soon" | "applications-open";
+  status: "live" | "coming-soon" | "applications-open" | "suspended" | "archived";
   teams: number;
   players: number;
   tagline: string;
@@ -19,6 +19,8 @@ export interface City {
 
 export interface Tournament {
   id: string;
+  slug?: string;
+  cityId?: string;
   citySlug: string;
   name: string;
   season: string;
@@ -26,13 +28,52 @@ export interface Tournament {
   venue: string;
   startDate: string;
   endDate: string;
-  status: "upcoming" | "in-progress" | "completed";
+  status:
+    | "draft"
+    | "registration-open"
+    | "registration-closed"
+    | "fixtures-published"
+    | "ongoing"
+    | "completed"
+    | "postponed"
+    | "cancelled"
+    | "archived"
+    | "upcoming"
+    | "in-progress";
   summary: string;
+  tieBreakers?: string[];
+  publishedAt?: string | null;
+}
+
+export interface Organization {
+  id: string;
+  cityId: string;
+  name: string;
+  slug: string;
+  email: string;
+  phone?: string | null;
+  country?: string | null;
+  website?: string | null;
+  description: string;
+  status:
+    | "draft"
+    | "submitted"
+    | "under-review"
+    | "more-info-required"
+    | "approved"
+    | "rejected"
+    | "suspended"
+    | "withdrawn";
+  reviewNotes?: string | null;
+  submittedAt: string;
+  reviewedAt?: string | null;
 }
 
 export interface Team {
   id: string;
   tournamentId: string;
+  organizationId?: string;
+  groupId?: string | null;
   name: string;
   shortName: string;
   company: string;
@@ -41,16 +82,43 @@ export interface Team {
   color: string;
   group: string;
   founded: string;
+  status?:
+    | "draft"
+    | "submitted"
+    | "under-review"
+    | "approved"
+    | "rejected"
+    | "suspended"
+    | "disqualified"
+    | "locked";
+  reviewNotes?: string | null;
 }
 
 export interface Player {
   id: string;
   teamId: string;
+  userId?: string | null;
   name: string;
+  fullName?: string;
+  email?: string | null;
   position: "GK" | "DEF" | "MID" | "FWD";
   number: number;
   role: string;
-  status: "active" | "invited";
+  status:
+    | "active"
+    | "invited"
+    | "registration-incomplete"
+    | "pending-approval"
+    | "approved"
+    | "suspended"
+    | "withdrawn"
+    | "disqualified";
+  reviewNotes?: string | null;
+  emergencyContactName?: string | null;
+  emergencyContactPhone?: string | null;
+  medicalDeclaration?: string | null;
+  waiverAcceptedAt?: string | null;
+  mediaConsentAcceptedAt?: string | null;
   goals: number;
   assists: number;
 }
@@ -58,16 +126,72 @@ export interface Player {
 export interface Fixture {
   id: string;
   tournamentId: string;
+  groupId?: string | null;
+  stage?: "group" | "knockout";
+  roundLabel?: string | null;
   matchday: number;
   homeTeamId: string;
   awayTeamId: string;
   date: string;
   time: string;
   venue: string;
-  status: "scheduled" | "completed";
+  status: "scheduled" | "live" | "completed" | "postponed" | "cancelled";
   homeScore: number | null;
   awayScore: number | null;
+  halfTimeHome?: number | null;
+  halfTimeAway?: number | null;
+  extraTimeHome?: number | null;
+  extraTimeAway?: number | null;
+  penaltyHome?: number | null;
+  penaltyAway?: number | null;
   scorers?: string[];
+}
+
+export interface MatchEvent {
+  type:
+    | "goal"
+    | "assist"
+    | "yellow-card"
+    | "red-card"
+    | "substitution"
+    | "half-time"
+    | "extra-time-start"
+    | "extra-time-end"
+    | "penalty-scored"
+    | "penalty-missed";
+  teamId?: string;
+  playerId?: string;
+  relatedPlayerId?: string;
+  period?: string;
+  minute?: number;
+  stoppageMinute?: number;
+  detail?: string;
+}
+
+export interface KnockoutRound {
+  id: string;
+  name: string;
+  roundOrder: number;
+  links: Array<{
+    id: string;
+    fromFixtureId: string;
+    toFixtureId: string;
+    winnerToSide: "HOME" | "AWAY";
+  }>;
+}
+
+export interface Award {
+  id: string;
+  name: string;
+  description?: string | null;
+  assignments: Array<{
+    id: string;
+    recipientType: "TEAM" | "PLAYER";
+    teamId?: string | null;
+    playerId?: string | null;
+    note?: string | null;
+    createdAt: string;
+  }>;
 }
 
 export interface Sponsor {

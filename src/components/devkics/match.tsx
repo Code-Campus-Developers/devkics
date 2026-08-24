@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 
 import { FormPill, TeamCrest } from "./brand";
 import { computeStandings } from "@/lib/devkics/standings";
-import type { Fixture, Team } from "@/lib/devkics/types";
+import type { Fixture, StandingRow, Team } from "@/lib/devkics/types";
 import { cn } from "@/lib/utils";
 
 export function MatchRow({
@@ -64,14 +64,16 @@ export function StandingsTable({
   teams,
   fixtures,
   citySlug,
+  rows,
   compact = false,
 }: {
   teams: Team[];
   fixtures: Fixture[];
   citySlug: string;
+  rows?: StandingRow[];
   compact?: boolean;
 }) {
-  const rows = computeStandings(teams, fixtures);
+  const computedRows = rows && rows.length > 0 ? rows : computeStandings(teams, fixtures);
 
   return (
     <div className="overflow-x-auto rounded-3xl border border-border bg-card">
@@ -90,7 +92,7 @@ export function StandingsTable({
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, i) => {
+          {computedRows.map((row, i) => {
             const team = teams.find((t) => t.id === row.teamId);
             if (!team) return null;
             return (

@@ -1,7 +1,15 @@
 import {
+  AwardRecipientType,
   CityStatus,
+  MatchEventType,
+  MatchStage,
+  MatchStatus,
+  OrganizationStatus,
   OrganizerApplicationStatus,
+  PlayerStatus,
   Role,
+  TeamStatus,
+  TournamentStatus,
   type RoleAssignment,
   type User,
 } from "@prisma/client";
@@ -20,6 +28,16 @@ import {
 import { prisma } from "./db";
 import { applyRateLimit, getClientIp, toRateLimitHeaders } from "./rate-limit";
 import { hasScopedRole } from "./rbac";
+import {
+  aggregateMatchStatistics,
+  assertOrganizationTransition,
+  assertPlayerTransition,
+  assertTeamTransition,
+  assertTournamentTransition,
+  computeStandingsProjection,
+  generateRoundRobinFixtures,
+  resolveFixtureWinner,
+} from "./tournament-ops";
 
 type Json = Record<string, unknown>;
 
@@ -114,6 +132,210 @@ function mapApplicationPayload(application: {
   };
 }
 
+function mapOrganizationStatus(status: OrganizationStatus) {
+  return status.toLowerCase().replaceAll("_", "-");
+}
+
+function mapTournamentStatus(status: TournamentStatus) {
+  return status.toLowerCase().replaceAll("_", "-");
+}
+
+function mapTeamStatus(status: TeamStatus) {
+  return status.toLowerCase().replaceAll("_", "-");
+}
+
+function mapPlayerStatus(status: PlayerStatus) {
+  return status.toLowerCase().replaceAll("_", "-");
+}
+
+function mapMatchStatus(status: MatchStatus) {
+  return status.toLowerCase();
+}
+
+function mapMatchStage(stage: MatchStage) {
+  return stage.toLowerCase();
+}
+
+function mapOrganizationPayload(organization: {
+  id: string;
+  cityId: string;
+  name: string;
+  slug: string;
+  email: string;
+  phone: string | null;
+  country: string | null;
+  website: string | null;
+  description: string;
+  status: OrganizationStatus;
+  reviewNotes: string | null;
+  submittedAt: Date;
+  reviewedAt: Date | null;
+}) {
+  return {
+    id: organization.id,
+    cityId: organization.cityId,
+    name: organization.name,
+    slug: organization.slug,
+    email: organization.email,
+    phone: organization.phone,
+    country: organization.country,
+    website: organization.website,
+    description: organization.description,
+    status: mapOrganizationStatus(organization.status),
+    reviewNotes: organization.reviewNotes,
+    submittedAt: organization.submittedAt.toISOString(),
+    reviewedAt: organization.reviewedAt?.toISOString() ?? null,
+  };
+}
+
+function mapTournamentPayload(tournament: {
+  id: string;
+  cityId: string;
+  name: string;
+  slug: string;
+  season: string;
+  format: string;
+  venue: string;
+  summary: string;
+  status: TournamentStatus;
+  startDate: Date;
+  endDate: Date;
+  tieBreakers: unknown;
+  publishedAt: Date | null;
+}) {
+  return {
+    id: tournament.id,
+    cityId: tournament.cityId,
+    name: tournament.name,
+    slug: tournament.slug,
+    season: tournament.season,
+    format: tournament.format,
+    venue: tournament.venue,
+    summary: tournament.summary,
+    status: mapTournamentStatus(tournament.status),
+    startDate: tournament.startDate.toISOString().slice(0, 10),
+    endDate: tournament.endDate.toISOString().slice(0, 10),
+    tieBreakers: Array.isArray(tournament.tieBreakers)
+      ? tournament.tieBreakers
+      : ["points", "goalDifference", "goalsFor"],
+    publishedAt: tournament.publishedAt?.toISOString() ?? null,
+  };
+}
+
+function mapTeamPayload(team: {
+  id: string;
+  tournamentId: string;
+  organizationId: string;
+  groupId: string | null;
+  name: string;
+  shortName: string;
+  company: string;
+  color: string | null;
+  founded: string | null;
+  status: TeamStatus;
+  reviewNotes: string | null;
+  managerUserId: string | null;
+  submittedAt: Date;
+}) {
+  return {
+    id: team.id,
+    tournamentId: team.tournamentId,
+    organizationId: team.organizationId,
+    groupId: team.groupId,
+    name: team.name,
+    shortName: team.shortName,
+    company: team.company,
+    color: team.color,
+    founded: team.founded,
+    status: mapTeamStatus(team.status),
+    reviewNotes: team.reviewNotes,
+    managerUserId: team.managerUserId,
+    submittedAt: team.submittedAt.toISOString(),
+  };
+}
+
+function mapPlayerPayload(player: {
+  id: string;
+  teamId: string;
+  userId: string | null;
+  fullName: string;
+  email?: string | null;
+  position: string;
+  number: number | null;
+  role: string | null;
+  status: PlayerStatus;
+  reviewNotes: string | null;
+  submittedAt: Date;
+}) {
+  return {
+    id: player.id,
+    teamId: player.teamId,
+    userId: player.userId,
+    fullName: player.fullName,
+    email: player.email,
+    position: player.position,
+    number: player.number,
+    role: player.role,
+    status: mapPlayerStatus(player.status),
+    reviewNotes: player.reviewNotes,
+    submittedAt: player.submittedAt.toISOString(),
+  };
+}
+
+function mapFixturePayload(fixture: {
+  id: string;
+  tournamentId: string;
+  groupId: string | null;
+  homeTeamId: string;
+  awayTeamId: string;
+  stage: MatchStage;
+  roundLabel: string | null;
+  matchday: number;
+  kickoffAt: Date;
+  venue: string;
+  status: MatchStatus;
+  match: {
+    homeScore: number | null;
+    awayScore: number | null;
+    halfTimeHome: number | null;
+    halfTimeAway: number | null;
+    extraTimeHome: number | null;
+    extraTimeAway: number | null;
+    penaltyHome: number | null;
+    penaltyAway: number | null;
+  } | null;
+}) {
+  return {
+    id: fixture.id,
+    tournamentId: fixture.tournamentId,
+    groupId: fixture.groupId,
+    homeTeamId: fixture.homeTeamId,
+    awayTeamId: fixture.awayTeamId,
+    stage: mapMatchStage(fixture.stage),
+    roundLabel: fixture.roundLabel,
+    matchday: fixture.matchday,
+    date: fixture.kickoffAt.toISOString().slice(0, 10),
+    time: fixture.kickoffAt.toISOString().slice(11, 16),
+    venue: fixture.venue,
+    status: mapMatchStatus(fixture.status),
+    homeScore: fixture.match?.homeScore ?? null,
+    awayScore: fixture.match?.awayScore ?? null,
+    halfTimeHome: fixture.match?.halfTimeHome ?? null,
+    halfTimeAway: fixture.match?.halfTimeAway ?? null,
+    extraTimeHome: fixture.match?.extraTimeHome ?? null,
+    extraTimeAway: fixture.match?.extraTimeAway ?? null,
+    penaltyHome: fixture.match?.penaltyHome ?? null,
+    penaltyAway: fixture.match?.penaltyAway ?? null,
+  };
+}
+
+function statusFromKebab<T extends string>(value: string, all: readonly T[]): T {
+  const normalized = value.toUpperCase().replaceAll("-", "_");
+  const resolved = all.find((item) => item === normalized);
+  if (!resolved) throw new Error(`Unsupported status: ${value}`);
+  return resolved;
+}
+
 function isAdmin(_user: User, assignments: RoleAssignment[]) {
   return hasScopedRole(assignments, Role.ADMIN);
 }
@@ -169,9 +391,178 @@ const paginationSchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(50).default(20),
 });
 
+const organizationCreateSchema = z.object({
+  citySlug: z.string().min(2),
+  name: z.string().min(2),
+  email: z.string().email(),
+  phone: z.string().optional(),
+  country: z.string().optional(),
+  website: z.string().url().optional(),
+  description: z.string().min(10).max(2000),
+});
+
+const organizationReviewSchema = z.object({
+  status: z.enum([
+    "submitted",
+    "under-review",
+    "more-info-required",
+    "approved",
+    "rejected",
+    "suspended",
+    "withdrawn",
+  ]),
+  reviewNotes: z.string().max(2000).optional(),
+});
+
+const tournamentCreateSchema = z.object({
+  citySlug: z.string().min(2),
+  name: z.string().min(2),
+  slug: z.string().min(2),
+  season: z.string().min(2),
+  format: z.string().min(2),
+  venue: z.string().min(2),
+  summary: z.string().min(5).max(2000),
+  startDate: z.string().min(8),
+  endDate: z.string().min(8),
+  tieBreakers: z.array(z.enum(["points", "goalDifference", "goalsFor", "won"])).optional(),
+});
+
+const tournamentStatusSchema = z.object({
+  status: z.enum([
+    "draft",
+    "registration-open",
+    "registration-closed",
+    "fixtures-published",
+    "ongoing",
+    "completed",
+    "postponed",
+    "cancelled",
+    "archived",
+  ]),
+});
+
+const teamCreateSchema = z.object({
+  tournamentId: z.string().min(1),
+  organizationId: z.string().min(1),
+  groupId: z.string().optional(),
+  name: z.string().min(2),
+  shortName: z.string().min(2).max(8),
+  company: z.string().min(2),
+  color: z.string().optional(),
+  founded: z.string().optional(),
+});
+
+const teamReviewSchema = z.object({
+  status: z.enum([
+    "submitted",
+    "under-review",
+    "approved",
+    "rejected",
+    "suspended",
+    "disqualified",
+    "locked",
+  ]),
+  reviewNotes: z.string().max(2000).optional(),
+});
+
+const playerCreateSchema = z.object({
+  teamId: z.string().min(1),
+  fullName: z.string().min(2),
+  email: z.string().email().optional(),
+  position: z.string().min(1),
+  number: z.number().int().min(1).max(99).optional(),
+  role: z.string().optional(),
+  dateOfBirth: z.string().optional(),
+  gender: z.string().optional(),
+  emergencyContactName: z.string().optional(),
+  emergencyContactPhone: z.string().optional(),
+  medicalDeclaration: z.string().max(2000).optional(),
+  waiverAccepted: z.boolean(),
+  mediaConsentAccepted: z.boolean().optional(),
+});
+
+const playerReviewSchema = z.object({
+  status: z.enum([
+    "registration-incomplete",
+    "pending-approval",
+    "approved",
+    "suspended",
+    "withdrawn",
+    "disqualified",
+  ]),
+  reviewNotes: z.string().max(2000).optional(),
+});
+
+const fixtureCreateSchema = z.object({
+  tournamentId: z.string().min(1),
+  groupId: z.string().optional(),
+  homeTeamId: z.string().min(1),
+  awayTeamId: z.string().min(1),
+  stage: z.enum(["group", "knockout"]).optional(),
+  roundLabel: z.string().optional(),
+  matchday: z.number().int().min(1),
+  date: z.string().min(8),
+  time: z.string().min(4),
+  venue: z.string().min(2),
+});
+
+const fixtureGenerateSchema = z.object({
+  tournamentId: z.string().min(1),
+  groupId: z.string().optional(),
+  kickoffStart: z.string().min(8),
+  venue: z.string().min(2),
+  matchIntervalMinutes: z.number().int().min(30).max(360).optional(),
+});
+
+const matchEventSchema = z.object({
+  type: z.enum([
+    "goal",
+    "assist",
+    "yellow-card",
+    "red-card",
+    "substitution",
+    "half-time",
+    "extra-time-start",
+    "extra-time-end",
+    "penalty-scored",
+    "penalty-missed",
+  ]),
+  teamId: z.string().optional(),
+  playerId: z.string().optional(),
+  relatedPlayerId: z.string().optional(),
+  period: z.string().default("regular"),
+  minute: z.number().int().min(0).max(150).optional(),
+  stoppageMinute: z.number().int().min(0).max(30).optional(),
+  detail: z.string().max(500).optional(),
+});
+
+const matchResultSchema = z.object({
+  homeScore: z.number().int().min(0),
+  awayScore: z.number().int().min(0),
+  halfTimeHome: z.number().int().min(0).optional(),
+  halfTimeAway: z.number().int().min(0).optional(),
+  extraTimeHome: z.number().int().min(0).optional(),
+  extraTimeAway: z.number().int().min(0).optional(),
+  penaltyHome: z.number().int().min(0).optional(),
+  penaltyAway: z.number().int().min(0).optional(),
+  notes: z.string().max(2000).optional(),
+  events: z.array(matchEventSchema).default([]),
+});
+
+const awardCreateSchema = z.object({
+  tournamentId: z.string().min(1),
+  name: z.string().min(2),
+  description: z.string().max(2000).optional(),
+  recipientType: z.enum(["team", "player"]),
+  teamId: z.string().optional(),
+  playerId: z.string().optional(),
+  note: z.string().max(500).optional(),
+});
+
 const AUTH_RATE_LIMIT = { limit: 12, windowMs: 60_000 };
 const APPLICATION_SUBMIT_RATE_LIMIT = { limit: 10, windowMs: 60_000 };
 const APPLICATION_REVIEW_RATE_LIMIT = { limit: 60, windowMs: 60_000 };
+const TOURNAMENT_MUTATION_RATE_LIMIT = { limit: 80, windowMs: 60_000 };
 
 function toOrganizerStatus(status: string): OrganizerApplicationStatus {
   if (status === "submitted") return OrganizerApplicationStatus.SUBMITTED;
@@ -196,6 +587,140 @@ async function parseJsonBody(request: Request) {
     return (await request.json()) as Json;
   } catch {
     return null;
+  }
+}
+
+function toMatchEventType(value: string): MatchEventType {
+  return statusFromKebab(value, Object.values(MatchEventType));
+}
+
+async function canAccessCityOperations(user: User, assignments: RoleAssignment[], cityId: string) {
+  if (hasScopedRole(assignments, Role.ADMIN)) return true;
+  return hasScopedRole(assignments, Role.ORGANIZER, { cityId });
+}
+
+async function resolveTournamentScope(tournamentId: string) {
+  return prisma.tournament.findUnique({
+    where: { id: tournamentId },
+    select: { id: true, cityId: true, tieBreakers: true },
+  });
+}
+
+async function refreshStandings(tournamentId: string) {
+  const [teams, fixtures, groups, tournament] = await Promise.all([
+    prisma.team.findMany({
+      where: { tournamentId, status: TeamStatus.APPROVED },
+      select: { id: true, groupId: true },
+    }),
+    prisma.fixture.findMany({
+      where: { tournamentId },
+      select: {
+        id: true,
+        homeTeamId: true,
+        awayTeamId: true,
+        status: true,
+        kickoffAt: true,
+        groupId: true,
+        match: {
+          select: {
+            homeScore: true,
+            awayScore: true,
+          },
+        },
+      },
+    }),
+    prisma.group.findMany({ where: { tournamentId }, select: { id: true } }),
+    prisma.tournament.findUnique({ where: { id: tournamentId }, select: { tieBreakers: true } }),
+  ]);
+
+  const tieBreakers = Array.isArray(tournament?.tieBreakers)
+    ? (tournament?.tieBreakers as string[])
+    : ["points", "goalDifference", "goalsFor"];
+
+  const fixtureByGroup = new Map<string | null, typeof fixtures>();
+  fixtureByGroup.set(
+    null,
+    fixtures.filter((fixture) => fixture.groupId === null),
+  );
+  for (const group of groups) {
+    fixtureByGroup.set(
+      group.id,
+      fixtures.filter((fixture) => fixture.groupId === group.id),
+    );
+  }
+
+  await prisma.standing.deleteMany({ where: { tournamentId } });
+
+  for (const [groupId, groupFixtures] of fixtureByGroup.entries()) {
+    const groupedTeams = teams
+      .filter((team) => (groupId ? team.groupId === groupId : true))
+      .map((team) => ({ id: team.id }));
+    if (!groupedTeams.length) continue;
+
+    const standings = computeStandingsProjection({
+      teams: groupedTeams,
+      fixtures: groupFixtures,
+      tieBreakers,
+    });
+
+    if (!standings.length) continue;
+
+    await prisma.standing.createMany({
+      data: standings.map((standing) => ({
+        tournamentId,
+        groupId,
+        teamId: standing.teamId,
+        played: standing.played,
+        won: standing.won,
+        drawn: standing.drawn,
+        lost: standing.lost,
+        goalsFor: standing.goalsFor,
+        goalsAgainst: standing.goalsAgainst,
+        goalDifference: standing.goalDifference,
+        points: standing.points,
+        form: standing.form,
+        rank: standing.rank,
+      })),
+    });
+  }
+}
+
+async function maybeAdvanceKnockout(fixtureId: string) {
+  const [fixture, links] = await Promise.all([
+    prisma.fixture.findUnique({
+      where: { id: fixtureId },
+      select: {
+        id: true,
+        homeTeamId: true,
+        awayTeamId: true,
+        stage: true,
+        match: {
+          select: {
+            homeScore: true,
+            awayScore: true,
+            penaltyHome: true,
+            penaltyAway: true,
+          },
+        },
+      },
+    }),
+    prisma.knockoutLink.findMany({
+      where: { fromFixtureId: fixtureId },
+      select: { toFixtureId: true, winnerToSide: true },
+    }),
+  ]);
+
+  if (!fixture || fixture.stage !== MatchStage.KNOCKOUT || !links.length) return;
+
+  const winnerTeamId = resolveFixtureWinner(fixture);
+  if (!winnerTeamId) return;
+
+  for (const link of links) {
+    await prisma.fixture.update({
+      where: { id: link.toFixtureId },
+      data:
+        link.winnerToSide === "HOME" ? { homeTeamId: winnerTeamId } : { awayTeamId: winnerTeamId },
+    });
   }
 }
 
@@ -520,6 +1045,1345 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       { ok: true, application: mapApplicationPayload(updated) },
       authHeaders,
     );
+  }
+
+  // organizations
+  if (request.method === "GET" && url.pathname === "/api/organizations") {
+    if (!auth.user) {
+      return jsonResponse(401, { ok: false, error: "Unauthorized" }, authHeaders);
+    }
+
+    const pagination = paginationSchema.safeParse({
+      page: url.searchParams.get("page") ?? "1",
+      pageSize: url.searchParams.get("pageSize") ?? "20",
+    });
+
+    if (!pagination.success) {
+      return jsonResponse(400, { ok: false, error: "Invalid pagination" }, authHeaders);
+    }
+
+    const citySlug = url.searchParams.get("citySlug") ?? undefined;
+    const city = citySlug
+      ? await prisma.city.findUnique({ where: { slug: citySlug }, select: { id: true } })
+      : null;
+
+    const isScopedAdmin = city
+      ? await canAccessCityOperations(auth.user, auth.assignments, city.id)
+      : hasScopedRole(auth.assignments, Role.ADMIN);
+
+    const { page, pageSize } = pagination.data;
+    const where = isScopedAdmin
+      ? city
+        ? { cityId: city.id }
+        : undefined
+      : {
+          ...(city ? { cityId: city.id } : {}),
+          ownerUserId: auth.user.id,
+        };
+
+    const organizationArgs = {
+      select: {
+        id: true,
+        cityId: true,
+        name: true,
+        slug: true,
+        email: true,
+        phone: true,
+        country: true,
+        website: true,
+        description: true,
+        status: true,
+        reviewNotes: true,
+        submittedAt: true,
+        reviewedAt: true,
+      },
+      orderBy: { submittedAt: "desc" as const },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    };
+
+    const organizations = where
+      ? await prisma.organization.findMany({ ...organizationArgs, where })
+      : await prisma.organization.findMany(organizationArgs);
+    const total = where
+      ? await prisma.organization.count({ where })
+      : await prisma.organization.count();
+
+    return jsonResponse(
+      200,
+      {
+        ok: true,
+        organizations: organizations.map(mapOrganizationPayload),
+        page,
+        pageSize,
+        total,
+      },
+      authHeaders,
+    );
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/organizations") {
+    const guard = applyEndpointRateLimit("organizations:create", APPLICATION_SUBMIT_RATE_LIMIT);
+    if (guard) return guard;
+
+    if (!auth.user) {
+      return jsonResponse(401, { ok: false, error: "Unauthorized" }, authHeaders);
+    }
+
+    const body = await parseJsonBody(request);
+    const parsed = organizationCreateSchema.safeParse(body);
+    if (!parsed.success) {
+      return jsonResponse(400, { ok: false, error: "Invalid payload" }, authHeaders);
+    }
+
+    const city = await prisma.city.findUnique({
+      where: { slug: parsed.data.citySlug },
+      select: { id: true },
+    });
+    if (!city) {
+      return jsonResponse(404, { ok: false, error: "City not found" }, authHeaders);
+    }
+
+    const slug = parsed.data.name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "");
+    const created = await prisma.organization.create({
+      data: {
+        cityId: city.id,
+        ownerUserId: auth.user.id,
+        name: parsed.data.name,
+        slug,
+        email: parsed.data.email,
+        phone: parsed.data.phone ?? null,
+        country: parsed.data.country ?? null,
+        website: parsed.data.website ?? null,
+        description: parsed.data.description,
+        status: OrganizationStatus.SUBMITTED,
+      },
+      select: {
+        id: true,
+        cityId: true,
+        name: true,
+        slug: true,
+        email: true,
+        phone: true,
+        country: true,
+        website: true,
+        description: true,
+        status: true,
+        reviewNotes: true,
+        submittedAt: true,
+        reviewedAt: true,
+      },
+    });
+
+    return jsonResponse(
+      201,
+      { ok: true, organization: mapOrganizationPayload(created) },
+      authHeaders,
+    );
+  }
+
+  if (request.method === "PATCH" && url.pathname.startsWith("/api/organizations/")) {
+    const guard = applyEndpointRateLimit("organizations:review", TOURNAMENT_MUTATION_RATE_LIMIT);
+    if (guard) return guard;
+
+    if (!auth.user) {
+      return jsonResponse(401, { ok: false, error: "Unauthorized" }, authHeaders);
+    }
+
+    const orgId = decodeURIComponent(url.pathname.split("/").at(-1) ?? "");
+    const existing = await prisma.organization.findUnique({
+      where: { id: orgId },
+      select: {
+        id: true,
+        cityId: true,
+        status: true,
+      },
+    });
+
+    if (!existing) {
+      return jsonResponse(404, { ok: false, error: "Organization not found" }, authHeaders);
+    }
+
+    if (!(await canAccessCityOperations(auth.user, auth.assignments, existing.cityId))) {
+      return jsonResponse(403, { ok: false, error: "Forbidden" }, authHeaders);
+    }
+
+    const body = await parseJsonBody(request);
+    const parsed = organizationReviewSchema.safeParse(body);
+    if (!parsed.success) {
+      return jsonResponse(400, { ok: false, error: "Invalid payload" }, authHeaders);
+    }
+
+    const nextStatus = statusFromKebab(parsed.data.status, Object.values(OrganizationStatus));
+    try {
+      assertOrganizationTransition(existing.status, nextStatus);
+    } catch (error) {
+      return jsonResponse(
+        409,
+        { ok: false, error: error instanceof Error ? error.message : "Invalid transition" },
+        authHeaders,
+      );
+    }
+
+    const updated = await prisma.organization.update({
+      where: { id: orgId },
+      data: {
+        status: nextStatus,
+        reviewNotes: parsed.data.reviewNotes ?? null,
+        reviewerUserId: auth.user.id,
+        reviewedAt: new Date(),
+      },
+      select: {
+        id: true,
+        cityId: true,
+        name: true,
+        slug: true,
+        email: true,
+        phone: true,
+        country: true,
+        website: true,
+        description: true,
+        status: true,
+        reviewNotes: true,
+        submittedAt: true,
+        reviewedAt: true,
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        actorId: auth.user.id,
+        action: "organization.reviewed",
+        resourceType: "organization",
+        resourceId: updated.id,
+        cityId: updated.cityId,
+        oldValue: { status: existing.status },
+        newValue: { status: updated.status, reviewNotes: updated.reviewNotes },
+      },
+    });
+
+    return jsonResponse(
+      200,
+      { ok: true, organization: mapOrganizationPayload(updated) },
+      authHeaders,
+    );
+  }
+
+  // tournaments
+  if (request.method === "GET" && url.pathname === "/api/tournaments") {
+    const citySlug = url.searchParams.get("citySlug") ?? undefined;
+    const where = citySlug
+      ? {
+          city: {
+            slug: citySlug,
+          },
+        }
+      : undefined;
+
+    const tournamentQuery = {
+      select: {
+        id: true,
+        cityId: true,
+        name: true,
+        slug: true,
+        season: true,
+        format: true,
+        venue: true,
+        summary: true,
+        status: true,
+        startDate: true,
+        endDate: true,
+        tieBreakers: true,
+        publishedAt: true,
+      },
+      orderBy: { startDate: "desc" as const },
+    };
+
+    const tournaments = where
+      ? await prisma.tournament.findMany({ ...tournamentQuery, where })
+      : await prisma.tournament.findMany(tournamentQuery);
+
+    return jsonResponse(
+      200,
+      { ok: true, tournaments: tournaments.map(mapTournamentPayload) },
+      authHeaders,
+    );
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/tournaments") {
+    const guard = applyEndpointRateLimit("tournaments:create", TOURNAMENT_MUTATION_RATE_LIMIT);
+    if (guard) return guard;
+
+    if (!auth.user) {
+      return jsonResponse(401, { ok: false, error: "Unauthorized" }, authHeaders);
+    }
+
+    const body = await parseJsonBody(request);
+    const parsed = tournamentCreateSchema.safeParse(body);
+    if (!parsed.success) {
+      return jsonResponse(400, { ok: false, error: "Invalid payload" }, authHeaders);
+    }
+
+    const city = await prisma.city.findUnique({
+      where: { slug: parsed.data.citySlug },
+      select: { id: true },
+    });
+    if (!city) {
+      return jsonResponse(404, { ok: false, error: "City not found" }, authHeaders);
+    }
+    if (!(await canAccessCityOperations(auth.user, auth.assignments, city.id))) {
+      return jsonResponse(403, { ok: false, error: "Forbidden" }, authHeaders);
+    }
+
+    const created = await prisma.tournament.create({
+      data: {
+        cityId: city.id,
+        updatedByUserId: auth.user.id,
+        name: parsed.data.name,
+        slug: parsed.data.slug,
+        season: parsed.data.season,
+        format: parsed.data.format,
+        venue: parsed.data.venue,
+        summary: parsed.data.summary,
+        startDate: new Date(parsed.data.startDate),
+        endDate: new Date(parsed.data.endDate),
+        tieBreakers: parsed.data.tieBreakers ?? ["points", "goalDifference", "goalsFor"],
+        status: TournamentStatus.DRAFT,
+      },
+      select: {
+        id: true,
+        cityId: true,
+        name: true,
+        slug: true,
+        season: true,
+        format: true,
+        venue: true,
+        summary: true,
+        status: true,
+        startDate: true,
+        endDate: true,
+        tieBreakers: true,
+        publishedAt: true,
+      },
+    });
+
+    return jsonResponse(201, { ok: true, tournament: mapTournamentPayload(created) }, authHeaders);
+  }
+
+  if (request.method === "PATCH" && url.pathname.startsWith("/api/tournaments/")) {
+    const guard = applyEndpointRateLimit("tournaments:update", TOURNAMENT_MUTATION_RATE_LIMIT);
+    if (guard) return guard;
+
+    if (!auth.user) {
+      return jsonResponse(401, { ok: false, error: "Unauthorized" }, authHeaders);
+    }
+
+    const tournamentId = decodeURIComponent(url.pathname.split("/").at(-1) ?? "");
+    const existing = await prisma.tournament.findUnique({
+      where: { id: tournamentId },
+      select: { id: true, cityId: true, status: true },
+    });
+    if (!existing) {
+      return jsonResponse(404, { ok: false, error: "Tournament not found" }, authHeaders);
+    }
+    if (!(await canAccessCityOperations(auth.user, auth.assignments, existing.cityId))) {
+      return jsonResponse(403, { ok: false, error: "Forbidden" }, authHeaders);
+    }
+
+    const body = await parseJsonBody(request);
+    const parsed = tournamentStatusSchema.safeParse(body);
+    if (!parsed.success) {
+      return jsonResponse(400, { ok: false, error: "Invalid payload" }, authHeaders);
+    }
+
+    const nextStatus = statusFromKebab(parsed.data.status, Object.values(TournamentStatus));
+    try {
+      assertTournamentTransition(existing.status, nextStatus);
+    } catch (error) {
+      return jsonResponse(
+        409,
+        { ok: false, error: error instanceof Error ? error.message : "Invalid transition" },
+        authHeaders,
+      );
+    }
+
+    const updated = await prisma.tournament.update({
+      where: { id: existing.id },
+      data: {
+        status: nextStatus,
+        updatedByUserId: auth.user.id,
+        ...(nextStatus === TournamentStatus.FIXTURES_PUBLISHED ? { publishedAt: new Date() } : {}),
+      },
+      select: {
+        id: true,
+        cityId: true,
+        name: true,
+        slug: true,
+        season: true,
+        format: true,
+        venue: true,
+        summary: true,
+        status: true,
+        startDate: true,
+        endDate: true,
+        tieBreakers: true,
+        publishedAt: true,
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        actorId: auth.user.id,
+        action: "tournament.status.updated",
+        resourceType: "tournament",
+        resourceId: updated.id,
+        cityId: updated.cityId,
+        oldValue: { status: existing.status },
+        newValue: { status: updated.status },
+      },
+    });
+
+    return jsonResponse(200, { ok: true, tournament: mapTournamentPayload(updated) }, authHeaders);
+  }
+
+  // teams
+  if (request.method === "GET" && url.pathname === "/api/teams") {
+    const tournamentId = url.searchParams.get("tournamentId") ?? undefined;
+    const status = url.searchParams.get("status") ?? undefined;
+    const page = Number(url.searchParams.get("page") ?? "1");
+    const pageSize = Math.min(Number(url.searchParams.get("pageSize") ?? "30"), 50);
+
+    const where = {
+      ...(tournamentId ? { tournamentId } : {}),
+      ...(status ? { status: statusFromKebab(status, Object.values(TeamStatus)) } : {}),
+    };
+
+    const [teams, total] = await Promise.all([
+      prisma.team.findMany({
+        where,
+        select: {
+          id: true,
+          tournamentId: true,
+          organizationId: true,
+          groupId: true,
+          name: true,
+          shortName: true,
+          company: true,
+          color: true,
+          founded: true,
+          status: true,
+          reviewNotes: true,
+          managerUserId: true,
+          submittedAt: true,
+        },
+        orderBy: { submittedAt: "desc" },
+        skip: (Math.max(page, 1) - 1) * Math.max(pageSize, 1),
+        take: Math.max(pageSize, 1),
+      }),
+      prisma.team.count({ where }),
+    ]);
+
+    return jsonResponse(
+      200,
+      {
+        ok: true,
+        teams: teams.map(mapTeamPayload),
+        page,
+        pageSize,
+        total,
+      },
+      authHeaders,
+    );
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/teams") {
+    const guard = applyEndpointRateLimit("teams:create", TOURNAMENT_MUTATION_RATE_LIMIT);
+    if (guard) return guard;
+
+    if (!auth.user) {
+      return jsonResponse(401, { ok: false, error: "Unauthorized" }, authHeaders);
+    }
+
+    const body = await parseJsonBody(request);
+    const parsed = teamCreateSchema.safeParse(body);
+    if (!parsed.success) {
+      return jsonResponse(400, { ok: false, error: "Invalid payload" }, authHeaders);
+    }
+
+    const [tournament, organization] = await Promise.all([
+      prisma.tournament.findUnique({
+        where: { id: parsed.data.tournamentId },
+        select: { id: true, cityId: true },
+      }),
+      prisma.organization.findUnique({
+        where: { id: parsed.data.organizationId },
+        select: { id: true, cityId: true, status: true },
+      }),
+    ]);
+
+    if (!tournament || !organization || organization.cityId !== tournament.cityId) {
+      return jsonResponse(
+        400,
+        { ok: false, error: "Organization/tournament mismatch" },
+        authHeaders,
+      );
+    }
+    if (organization.status !== OrganizationStatus.APPROVED) {
+      return jsonResponse(409, { ok: false, error: "Organization must be approved" }, authHeaders);
+    }
+
+    const created = await prisma.team.create({
+      data: {
+        tournamentId: parsed.data.tournamentId,
+        organizationId: parsed.data.organizationId,
+        groupId: parsed.data.groupId ?? null,
+        managerUserId: auth.user.id,
+        name: parsed.data.name,
+        shortName: parsed.data.shortName.toUpperCase(),
+        company: parsed.data.company,
+        color: parsed.data.color ?? null,
+        founded: parsed.data.founded ?? null,
+        status: TeamStatus.SUBMITTED,
+      },
+      select: {
+        id: true,
+        tournamentId: true,
+        organizationId: true,
+        groupId: true,
+        name: true,
+        shortName: true,
+        company: true,
+        color: true,
+        founded: true,
+        status: true,
+        reviewNotes: true,
+        managerUserId: true,
+        submittedAt: true,
+      },
+    });
+
+    return jsonResponse(201, { ok: true, team: mapTeamPayload(created) }, authHeaders);
+  }
+
+  if (request.method === "PATCH" && url.pathname.startsWith("/api/teams/")) {
+    const guard = applyEndpointRateLimit("teams:review", TOURNAMENT_MUTATION_RATE_LIMIT);
+    if (guard) return guard;
+
+    if (!auth.user) {
+      return jsonResponse(401, { ok: false, error: "Unauthorized" }, authHeaders);
+    }
+
+    const teamId = decodeURIComponent(url.pathname.split("/").at(-1) ?? "");
+    const existing = await prisma.team.findUnique({
+      where: { id: teamId },
+      select: {
+        id: true,
+        status: true,
+        tournament: { select: { cityId: true } },
+      },
+    });
+    if (!existing) {
+      return jsonResponse(404, { ok: false, error: "Team not found" }, authHeaders);
+    }
+
+    if (!(await canAccessCityOperations(auth.user, auth.assignments, existing.tournament.cityId))) {
+      return jsonResponse(403, { ok: false, error: "Forbidden" }, authHeaders);
+    }
+
+    const body = await parseJsonBody(request);
+    const parsed = teamReviewSchema.safeParse(body);
+    if (!parsed.success) {
+      return jsonResponse(400, { ok: false, error: "Invalid payload" }, authHeaders);
+    }
+
+    const nextStatus = statusFromKebab(parsed.data.status, Object.values(TeamStatus));
+    try {
+      assertTeamTransition(existing.status, nextStatus);
+    } catch (error) {
+      return jsonResponse(
+        409,
+        { ok: false, error: error instanceof Error ? error.message : "Invalid transition" },
+        authHeaders,
+      );
+    }
+
+    const updated = await prisma.team.update({
+      where: { id: existing.id },
+      data: {
+        status: nextStatus,
+        reviewNotes: parsed.data.reviewNotes ?? null,
+        reviewerUserId: auth.user.id,
+        reviewedAt: new Date(),
+        ...(nextStatus === TeamStatus.LOCKED ? { squadLockedAt: new Date() } : {}),
+      },
+      select: {
+        id: true,
+        tournamentId: true,
+        organizationId: true,
+        groupId: true,
+        name: true,
+        shortName: true,
+        company: true,
+        color: true,
+        founded: true,
+        status: true,
+        reviewNotes: true,
+        managerUserId: true,
+        submittedAt: true,
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        actorId: auth.user.id,
+        action: "team.reviewed",
+        resourceType: "team",
+        resourceId: updated.id,
+        cityId: existing.tournament.cityId,
+        oldValue: { status: existing.status },
+        newValue: { status: updated.status, reviewNotes: updated.reviewNotes },
+      },
+    });
+
+    return jsonResponse(200, { ok: true, team: mapTeamPayload(updated) }, authHeaders);
+  }
+
+  // players
+  if (request.method === "GET" && url.pathname === "/api/players") {
+    if (!auth.user) {
+      return jsonResponse(401, { ok: false, error: "Unauthorized" }, authHeaders);
+    }
+
+    const tournamentId = url.searchParams.get("tournamentId") ?? undefined;
+    const teamId = url.searchParams.get("teamId") ?? undefined;
+    const page = Number(url.searchParams.get("page") ?? "1");
+    const pageSize = Math.min(Number(url.searchParams.get("pageSize") ?? "30"), 50);
+
+    const where = {
+      ...(teamId ? { teamId } : {}),
+      ...(tournamentId ? { team: { tournamentId } } : {}),
+    };
+
+    const [players, total] = await Promise.all([
+      prisma.player.findMany({
+        where,
+        select: {
+          id: true,
+          teamId: true,
+          userId: true,
+          fullName: true,
+          email: false,
+          position: true,
+          number: true,
+          role: true,
+          status: true,
+          reviewNotes: true,
+          submittedAt: true,
+        },
+        orderBy: { submittedAt: "desc" },
+        skip: (Math.max(page, 1) - 1) * Math.max(pageSize, 1),
+        take: Math.max(pageSize, 1),
+      }),
+      prisma.player.count({ where }),
+    ]);
+
+    return jsonResponse(
+      200,
+      {
+        ok: true,
+        players: players.map(mapPlayerPayload),
+        page,
+        pageSize,
+        total,
+      },
+      authHeaders,
+    );
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/players") {
+    const guard = applyEndpointRateLimit("players:create", TOURNAMENT_MUTATION_RATE_LIMIT);
+    if (guard) return guard;
+
+    if (!auth.user) {
+      return jsonResponse(401, { ok: false, error: "Unauthorized" }, authHeaders);
+    }
+
+    const body = await parseJsonBody(request);
+    const parsed = playerCreateSchema.safeParse(body);
+    if (!parsed.success) {
+      return jsonResponse(400, { ok: false, error: "Invalid payload" }, authHeaders);
+    }
+
+    if (!parsed.data.waiverAccepted) {
+      return jsonResponse(
+        400,
+        { ok: false, error: "Player waiver acceptance is required" },
+        authHeaders,
+      );
+    }
+
+    const team = await prisma.team.findUnique({
+      where: { id: parsed.data.teamId },
+      select: { id: true, status: true },
+    });
+    if (!team) {
+      return jsonResponse(404, { ok: false, error: "Team not found" }, authHeaders);
+    }
+    if (team.status === TeamStatus.LOCKED || team.status === TeamStatus.DISQUALIFIED) {
+      return jsonResponse(409, { ok: false, error: "Team roster is not open" }, authHeaders);
+    }
+
+    const created = await prisma.player.create({
+      data: {
+        teamId: parsed.data.teamId,
+        userId: auth.user.id,
+        fullName: parsed.data.fullName,
+        email: parsed.data.email ?? null,
+        position: parsed.data.position,
+        number: parsed.data.number ?? null,
+        role: parsed.data.role ?? null,
+        dateOfBirth: parsed.data.dateOfBirth ? new Date(parsed.data.dateOfBirth) : null,
+        gender: parsed.data.gender ?? null,
+        emergencyContactName: parsed.data.emergencyContactName ?? null,
+        emergencyContactPhone: parsed.data.emergencyContactPhone ?? null,
+        medicalDeclaration: parsed.data.medicalDeclaration ?? null,
+        waiverAcceptedAt: new Date(),
+        mediaConsentAcceptedAt: parsed.data.mediaConsentAccepted ? new Date() : null,
+        status: PlayerStatus.PENDING_APPROVAL,
+      },
+      select: {
+        id: true,
+        teamId: true,
+        userId: true,
+        fullName: true,
+        email: true,
+        position: true,
+        number: true,
+        role: true,
+        status: true,
+        reviewNotes: true,
+        submittedAt: true,
+      },
+    });
+
+    return jsonResponse(201, { ok: true, player: mapPlayerPayload(created) }, authHeaders);
+  }
+
+  if (request.method === "PATCH" && url.pathname.startsWith("/api/players/")) {
+    const guard = applyEndpointRateLimit("players:review", TOURNAMENT_MUTATION_RATE_LIMIT);
+    if (guard) return guard;
+
+    if (!auth.user) {
+      return jsonResponse(401, { ok: false, error: "Unauthorized" }, authHeaders);
+    }
+
+    const playerId = decodeURIComponent(url.pathname.split("/").at(-1) ?? "");
+    const existing = await prisma.player.findUnique({
+      where: { id: playerId },
+      select: {
+        id: true,
+        status: true,
+        team: { select: { tournament: { select: { cityId: true } } } },
+      },
+    });
+
+    if (!existing) {
+      return jsonResponse(404, { ok: false, error: "Player not found" }, authHeaders);
+    }
+
+    const cityId = existing.team.tournament.cityId;
+    if (!(await canAccessCityOperations(auth.user, auth.assignments, cityId))) {
+      return jsonResponse(403, { ok: false, error: "Forbidden" }, authHeaders);
+    }
+
+    const body = await parseJsonBody(request);
+    const parsed = playerReviewSchema.safeParse(body);
+    if (!parsed.success) {
+      return jsonResponse(400, { ok: false, error: "Invalid payload" }, authHeaders);
+    }
+
+    const nextStatus = statusFromKebab(parsed.data.status, Object.values(PlayerStatus));
+    try {
+      assertPlayerTransition(existing.status, nextStatus);
+    } catch (error) {
+      return jsonResponse(
+        409,
+        { ok: false, error: error instanceof Error ? error.message : "Invalid transition" },
+        authHeaders,
+      );
+    }
+
+    const updated = await prisma.player.update({
+      where: { id: existing.id },
+      data: {
+        status: nextStatus,
+        reviewNotes: parsed.data.reviewNotes ?? null,
+        reviewerUserId: auth.user.id,
+        reviewedAt: new Date(),
+      },
+      select: {
+        id: true,
+        teamId: true,
+        userId: true,
+        fullName: true,
+        email: true,
+        position: true,
+        number: true,
+        role: true,
+        status: true,
+        reviewNotes: true,
+        submittedAt: true,
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        actorId: auth.user.id,
+        action: "player.reviewed",
+        resourceType: "player",
+        resourceId: updated.id,
+        cityId,
+        oldValue: { status: existing.status },
+        newValue: { status: updated.status, reviewNotes: updated.reviewNotes },
+      },
+    });
+
+    return jsonResponse(200, { ok: true, player: mapPlayerPayload(updated) }, authHeaders);
+  }
+
+  // fixtures and results
+  if (request.method === "GET" && url.pathname === "/api/fixtures") {
+    const tournamentId = url.searchParams.get("tournamentId");
+    if (!tournamentId) {
+      return jsonResponse(400, { ok: false, error: "tournamentId is required" }, authHeaders);
+    }
+
+    const fixtures = await prisma.fixture.findMany({
+      where: { tournamentId },
+      select: {
+        id: true,
+        tournamentId: true,
+        groupId: true,
+        homeTeamId: true,
+        awayTeamId: true,
+        stage: true,
+        roundLabel: true,
+        matchday: true,
+        kickoffAt: true,
+        venue: true,
+        status: true,
+        match: {
+          select: {
+            homeScore: true,
+            awayScore: true,
+            halfTimeHome: true,
+            halfTimeAway: true,
+            extraTimeHome: true,
+            extraTimeAway: true,
+            penaltyHome: true,
+            penaltyAway: true,
+          },
+        },
+      },
+      orderBy: [{ matchday: "asc" }, { kickoffAt: "asc" }],
+    });
+
+    return jsonResponse(200, { ok: true, fixtures: fixtures.map(mapFixturePayload) }, authHeaders);
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/fixtures") {
+    const guard = applyEndpointRateLimit("fixtures:create", TOURNAMENT_MUTATION_RATE_LIMIT);
+    if (guard) return guard;
+
+    if (!auth.user) {
+      return jsonResponse(401, { ok: false, error: "Unauthorized" }, authHeaders);
+    }
+
+    const body = await parseJsonBody(request);
+    const parsed = fixtureCreateSchema.safeParse(body);
+    if (!parsed.success) {
+      return jsonResponse(400, { ok: false, error: "Invalid payload" }, authHeaders);
+    }
+    if (parsed.data.homeTeamId === parsed.data.awayTeamId) {
+      return jsonResponse(400, { ok: false, error: "Teams must be different" }, authHeaders);
+    }
+
+    const tournament = await resolveTournamentScope(parsed.data.tournamentId);
+    if (!tournament) {
+      return jsonResponse(404, { ok: false, error: "Tournament not found" }, authHeaders);
+    }
+    if (!(await canAccessCityOperations(auth.user, auth.assignments, tournament.cityId))) {
+      return jsonResponse(403, { ok: false, error: "Forbidden" }, authHeaders);
+    }
+
+    const kickoffAt = new Date(`${parsed.data.date}T${parsed.data.time}:00.000Z`);
+
+    const created = await prisma.fixture.create({
+      data: {
+        tournamentId: parsed.data.tournamentId,
+        groupId: parsed.data.groupId ?? null,
+        homeTeamId: parsed.data.homeTeamId,
+        awayTeamId: parsed.data.awayTeamId,
+        stage: parsed.data.stage === "knockout" ? MatchStage.KNOCKOUT : MatchStage.GROUP,
+        roundLabel: parsed.data.roundLabel ?? null,
+        matchday: parsed.data.matchday,
+        kickoffAt,
+        venue: parsed.data.venue,
+        createdByUserId: auth.user.id,
+      },
+      select: {
+        id: true,
+        tournamentId: true,
+        groupId: true,
+        homeTeamId: true,
+        awayTeamId: true,
+        stage: true,
+        roundLabel: true,
+        matchday: true,
+        kickoffAt: true,
+        venue: true,
+        status: true,
+        match: {
+          select: {
+            homeScore: true,
+            awayScore: true,
+            halfTimeHome: true,
+            halfTimeAway: true,
+            extraTimeHome: true,
+            extraTimeAway: true,
+            penaltyHome: true,
+            penaltyAway: true,
+          },
+        },
+      },
+    });
+
+    return jsonResponse(201, { ok: true, fixture: mapFixturePayload(created) }, authHeaders);
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/fixtures/generate") {
+    const guard = applyEndpointRateLimit("fixtures:generate", TOURNAMENT_MUTATION_RATE_LIMIT);
+    if (guard) return guard;
+
+    if (!auth.user) {
+      return jsonResponse(401, { ok: false, error: "Unauthorized" }, authHeaders);
+    }
+
+    const body = await parseJsonBody(request);
+    const parsed = fixtureGenerateSchema.safeParse(body);
+    if (!parsed.success) {
+      return jsonResponse(400, { ok: false, error: "Invalid payload" }, authHeaders);
+    }
+
+    const tournament = await resolveTournamentScope(parsed.data.tournamentId);
+    if (!tournament) {
+      return jsonResponse(404, { ok: false, error: "Tournament not found" }, authHeaders);
+    }
+    if (!(await canAccessCityOperations(auth.user, auth.assignments, tournament.cityId))) {
+      return jsonResponse(403, { ok: false, error: "Forbidden" }, authHeaders);
+    }
+
+    const teams = await prisma.team.findMany({
+      where: {
+        tournamentId: parsed.data.tournamentId,
+        status: TeamStatus.APPROVED,
+        ...(parsed.data.groupId ? { groupId: parsed.data.groupId } : {}),
+      },
+      select: { id: true },
+      orderBy: { name: "asc" },
+    });
+
+    const generated = generateRoundRobinFixtures({
+      teamIds: teams.map((team) => team.id),
+      kickoffStart: new Date(parsed.data.kickoffStart),
+      venue: parsed.data.venue,
+      groupId: parsed.data.groupId ?? null,
+      ...(parsed.data.matchIntervalMinutes
+        ? { matchIntervalMinutes: parsed.data.matchIntervalMinutes }
+        : {}),
+    });
+
+    if (!generated.length) {
+      return jsonResponse(200, { ok: true, fixtures: [] }, authHeaders);
+    }
+
+    const created = await prisma.$transaction(
+      generated.map((fixture) =>
+        prisma.fixture.create({
+          data: {
+            tournamentId: parsed.data.tournamentId,
+            groupId: fixture.groupId,
+            homeTeamId: fixture.homeTeamId,
+            awayTeamId: fixture.awayTeamId,
+            stage: fixture.stage,
+            roundLabel: fixture.roundLabel,
+            matchday: fixture.matchday,
+            kickoffAt: fixture.kickoffAt,
+            venue: fixture.venue,
+            createdByUserId: auth.user.id,
+          },
+          select: {
+            id: true,
+            tournamentId: true,
+            groupId: true,
+            homeTeamId: true,
+            awayTeamId: true,
+            stage: true,
+            roundLabel: true,
+            matchday: true,
+            kickoffAt: true,
+            venue: true,
+            status: true,
+            match: {
+              select: {
+                homeScore: true,
+                awayScore: true,
+                halfTimeHome: true,
+                halfTimeAway: true,
+                extraTimeHome: true,
+                extraTimeAway: true,
+                penaltyHome: true,
+                penaltyAway: true,
+              },
+            },
+          },
+        }),
+      ),
+    );
+
+    return jsonResponse(201, { ok: true, fixtures: created.map(mapFixturePayload) }, authHeaders);
+  }
+
+  if (request.method === "PATCH" && url.pathname.startsWith("/api/matches/")) {
+    const guard = applyEndpointRateLimit("matches:result", TOURNAMENT_MUTATION_RATE_LIMIT);
+    if (guard) return guard;
+
+    if (!auth.user) {
+      return jsonResponse(401, { ok: false, error: "Unauthorized" }, authHeaders);
+    }
+
+    const fixtureId = decodeURIComponent(url.pathname.split("/").at(-1) ?? "");
+    const fixture = await prisma.fixture.findUnique({
+      where: { id: fixtureId },
+      select: {
+        id: true,
+        tournamentId: true,
+        stage: true,
+        homeTeamId: true,
+        awayTeamId: true,
+        tournament: { select: { cityId: true } },
+      },
+    });
+
+    if (!fixture) {
+      return jsonResponse(404, { ok: false, error: "Fixture not found" }, authHeaders);
+    }
+    if (!(await canAccessCityOperations(auth.user, auth.assignments, fixture.tournament.cityId))) {
+      return jsonResponse(403, { ok: false, error: "Forbidden" }, authHeaders);
+    }
+
+    const body = await parseJsonBody(request);
+    const parsed = matchResultSchema.safeParse(body);
+    if (!parsed.success) {
+      return jsonResponse(400, { ok: false, error: "Invalid payload" }, authHeaders);
+    }
+
+    const saved = await prisma.$transaction(async (tx) => {
+      const match = await tx.match.upsert({
+        where: { fixtureId: fixture.id },
+        update: {
+          homeScore: parsed.data.homeScore,
+          awayScore: parsed.data.awayScore,
+          halfTimeHome: parsed.data.halfTimeHome ?? null,
+          halfTimeAway: parsed.data.halfTimeAway ?? null,
+          extraTimeHome: parsed.data.extraTimeHome ?? null,
+          extraTimeAway: parsed.data.extraTimeAway ?? null,
+          penaltyHome: parsed.data.penaltyHome ?? null,
+          penaltyAway: parsed.data.penaltyAway ?? null,
+          notes: parsed.data.notes ?? null,
+          reviewerUserId: auth.user.id,
+          verifiedAt: new Date(),
+        },
+        create: {
+          fixtureId: fixture.id,
+          homeScore: parsed.data.homeScore,
+          awayScore: parsed.data.awayScore,
+          halfTimeHome: parsed.data.halfTimeHome ?? null,
+          halfTimeAway: parsed.data.halfTimeAway ?? null,
+          extraTimeHome: parsed.data.extraTimeHome ?? null,
+          extraTimeAway: parsed.data.extraTimeAway ?? null,
+          penaltyHome: parsed.data.penaltyHome ?? null,
+          penaltyAway: parsed.data.penaltyAway ?? null,
+          notes: parsed.data.notes ?? null,
+          reviewerUserId: auth.user.id,
+          verifiedAt: new Date(),
+        },
+      });
+
+      await tx.matchEvent.deleteMany({ where: { matchId: match.id } });
+      if (parsed.data.events.length) {
+        await tx.matchEvent.createMany({
+          data: parsed.data.events.map((event) => ({
+            matchId: match.id,
+            type: toMatchEventType(event.type),
+            teamId: event.teamId ?? null,
+            playerId: event.playerId ?? null,
+            relatedPlayerId: event.relatedPlayerId ?? null,
+            period: event.period,
+            minute: event.minute ?? null,
+            stoppageMinute: event.stoppageMinute ?? null,
+            detail: event.detail ?? null,
+          })),
+        });
+      }
+
+      await tx.fixture.update({
+        where: { id: fixture.id },
+        data: { status: MatchStatus.COMPLETED },
+      });
+
+      return match;
+    });
+
+    const eventStats = aggregateMatchStatistics(
+      await prisma.matchEvent.findMany({
+        where: { matchId: saved.id },
+        select: { teamId: true, playerId: true, type: true },
+      }),
+    );
+
+    await refreshStandings(fixture.tournamentId);
+    if (fixture.stage === MatchStage.KNOCKOUT) {
+      await maybeAdvanceKnockout(fixture.id);
+    }
+
+    await prisma.auditLog.create({
+      data: {
+        actorId: auth.user.id,
+        action: "match.result.recorded",
+        resourceType: "fixture",
+        resourceId: fixture.id,
+        cityId: fixture.tournament.cityId,
+        newValue: {
+          homeScore: parsed.data.homeScore,
+          awayScore: parsed.data.awayScore,
+          goalsTrackedTeams: [...eventStats.teamGoals.keys()],
+        },
+      },
+    });
+
+    const updatedFixture = await prisma.fixture.findUnique({
+      where: { id: fixture.id },
+      select: {
+        id: true,
+        tournamentId: true,
+        groupId: true,
+        homeTeamId: true,
+        awayTeamId: true,
+        stage: true,
+        roundLabel: true,
+        matchday: true,
+        kickoffAt: true,
+        venue: true,
+        status: true,
+        match: {
+          select: {
+            homeScore: true,
+            awayScore: true,
+            halfTimeHome: true,
+            halfTimeAway: true,
+            extraTimeHome: true,
+            extraTimeAway: true,
+            penaltyHome: true,
+            penaltyAway: true,
+          },
+        },
+      },
+    });
+
+    return jsonResponse(
+      200,
+      { ok: true, fixture: updatedFixture ? mapFixturePayload(updatedFixture) : null },
+      authHeaders,
+    );
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/standings") {
+    const tournamentId = url.searchParams.get("tournamentId");
+    if (!tournamentId) {
+      return jsonResponse(400, { ok: false, error: "tournamentId is required" }, authHeaders);
+    }
+
+    const standings = await prisma.standing.findMany({
+      where: { tournamentId },
+      select: {
+        teamId: true,
+        groupId: true,
+        played: true,
+        won: true,
+        drawn: true,
+        lost: true,
+        goalsFor: true,
+        goalsAgainst: true,
+        goalDifference: true,
+        points: true,
+        form: true,
+        rank: true,
+      },
+      orderBy: [{ groupId: "asc" }, { rank: "asc" }],
+    });
+
+    return jsonResponse(200, { ok: true, standings }, authHeaders);
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/knockout") {
+    const tournamentId = url.searchParams.get("tournamentId");
+    if (!tournamentId) {
+      return jsonResponse(400, { ok: false, error: "tournamentId is required" }, authHeaders);
+    }
+
+    const rounds = await prisma.knockoutRound.findMany({
+      where: { tournamentId },
+      select: {
+        id: true,
+        name: true,
+        roundOrder: true,
+        links: {
+          select: {
+            id: true,
+            fromFixtureId: true,
+            toFixtureId: true,
+            winnerToSide: true,
+          },
+        },
+      },
+      orderBy: { roundOrder: "asc" },
+    });
+
+    return jsonResponse(200, { ok: true, rounds }, authHeaders);
+  }
+
+  // awards
+  if (request.method === "GET" && url.pathname === "/api/awards") {
+    const tournamentId = url.searchParams.get("tournamentId");
+    if (!tournamentId) {
+      return jsonResponse(400, { ok: false, error: "tournamentId is required" }, authHeaders);
+    }
+
+    const awards = await prisma.award.findMany({
+      where: { tournamentId },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        assignments: {
+          select: {
+            id: true,
+            recipientType: true,
+            teamId: true,
+            playerId: true,
+            note: true,
+            createdAt: true,
+          },
+        },
+      },
+      orderBy: { name: "asc" },
+    });
+
+    return jsonResponse(200, { ok: true, awards }, authHeaders);
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/awards") {
+    const guard = applyEndpointRateLimit("awards:create", TOURNAMENT_MUTATION_RATE_LIMIT);
+    if (guard) return guard;
+
+    if (!auth.user) {
+      return jsonResponse(401, { ok: false, error: "Unauthorized" }, authHeaders);
+    }
+
+    const body = await parseJsonBody(request);
+    const parsed = awardCreateSchema.safeParse(body);
+    if (!parsed.success) {
+      return jsonResponse(400, { ok: false, error: "Invalid payload" }, authHeaders);
+    }
+
+    const tournament = await resolveTournamentScope(parsed.data.tournamentId);
+    if (!tournament) {
+      return jsonResponse(404, { ok: false, error: "Tournament not found" }, authHeaders);
+    }
+    if (!(await canAccessCityOperations(auth.user, auth.assignments, tournament.cityId))) {
+      return jsonResponse(403, { ok: false, error: "Forbidden" }, authHeaders);
+    }
+
+    if (parsed.data.recipientType === "team" && !parsed.data.teamId) {
+      return jsonResponse(
+        400,
+        { ok: false, error: "teamId is required for team awards" },
+        authHeaders,
+      );
+    }
+    if (parsed.data.recipientType === "player" && !parsed.data.playerId) {
+      return jsonResponse(
+        400,
+        { ok: false, error: "playerId is required for player awards" },
+        authHeaders,
+      );
+    }
+
+    const award = await prisma.award.create({
+      data: {
+        tournamentId: parsed.data.tournamentId,
+        name: parsed.data.name,
+        description: parsed.data.description ?? null,
+        assignments: {
+          create: {
+            recipientType:
+              parsed.data.recipientType === "team"
+                ? AwardRecipientType.TEAM
+                : AwardRecipientType.PLAYER,
+            teamId: parsed.data.teamId ?? null,
+            playerId: parsed.data.playerId ?? null,
+            assignedByUserId: auth.user.id,
+            note: parsed.data.note ?? null,
+          },
+        },
+      },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        assignments: {
+          select: {
+            id: true,
+            recipientType: true,
+            teamId: true,
+            playerId: true,
+            note: true,
+            createdAt: true,
+          },
+        },
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        actorId: auth.user.id,
+        action: "award.assigned",
+        resourceType: "award",
+        resourceId: award.id,
+        cityId: tournament.cityId,
+        newValue: {
+          recipientType: parsed.data.recipientType,
+          teamId: parsed.data.teamId ?? null,
+          playerId: parsed.data.playerId ?? null,
+        },
+      },
+    });
+
+    return jsonResponse(201, { ok: true, award }, authHeaders);
   }
 
   return jsonResponse(404, { ok: false, error: "Not found" }, authHeaders);

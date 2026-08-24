@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:unit": "vitest run tests/unit",
-    "test:integration": "vitest run tests/integration",
+    "test:integration": "vitest run --maxWorkers=1 --sequence.concurrent false tests/integration",
     "test:coverage": "vitest run --coverage",
     "e2e": "playwright test",
     "prisma:generate": "prisma generate",

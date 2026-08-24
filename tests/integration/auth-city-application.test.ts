@@ -35,6 +35,19 @@ describe("Phase 1 API integration", () => {
   });
 
   beforeEach(async () => {
+    await prisma.awardAssignment.deleteMany();
+    await prisma.award.deleteMany();
+    await prisma.knockoutLink.deleteMany();
+    await prisma.knockoutRound.deleteMany();
+    await prisma.standing.deleteMany();
+    await prisma.matchEvent.deleteMany();
+    await prisma.match.deleteMany();
+    await prisma.fixture.deleteMany();
+    await prisma.player.deleteMany();
+    await prisma.team.deleteMany();
+    await prisma.group.deleteMany();
+    await prisma.tournament.deleteMany();
+    await prisma.organization.deleteMany();
     await prisma.auditLog.deleteMany();
     await prisma.organizerApplication.deleteMany();
     await prisma.roleAssignment.deleteMany();
@@ -42,8 +55,19 @@ describe("Phase 1 API integration", () => {
     await prisma.user.deleteMany();
     await prisma.city.deleteMany();
 
-    await prisma.city.create({
-      data: {
+    await prisma.city.upsert({
+      where: { slug: "abuja" },
+      update: {
+        name: "Abuja",
+        country: "Nigeria",
+        countryCode: "NG",
+        status: "LIVE",
+        teams: 8,
+        players: 96,
+        tagline: "Pilot city",
+        accentImage: "abuja",
+      },
+      create: {
         slug: "abuja",
         name: "Abuja",
         country: "Nigeria",

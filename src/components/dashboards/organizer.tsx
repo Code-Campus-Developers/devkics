@@ -7,6 +7,7 @@ import { ApplicationQueue } from "./applications";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
@@ -15,18 +16,50 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { tournaments } from "@/lib/devkics/seed";
 import { useDevKics } from "@/lib/devkics/store";
+import type { MatchEvent } from "@/lib/devkics/types";
 
 export function OrganizerDashboard() {
-  const { teams, players, fixtures, applications } = useDevKics();
-  const tournament = tournaments[0]!;
+  const {
+    teams,
+    players,
+    fixtures,
+    applications,
+    organizations,
+    tournaments,
+    standings,
+    updateTeam,
+    reviewOrganization,
+    reviewPlayer,
+    loadingTournamentOps,
+  } = useDevKics();
+  const tournament = tournaments[0];
   const pending = applications.filter((a) => a.status === "pending" && a.kind !== "city-organizer");
+  const pendingOrganizations = organizations.filter(
+    (organization) =>
+      organization.status === "submitted" ||
+      organization.status === "under-review" ||
+      organization.status === "more-info-required",
+  );
+  const pendingTeams = teams.filter(
+    (team) => team.status === "submitted" || team.status === "under-review",
+  );
+  const pendingPlayers = players.filter(
+    (player) => player.status === "pending-approval" || player.status === "registration-incomplete",
+  );
+
+  if (loadingTournamentOps) {
+    return <p className="text-sm text-muted-foreground">Loading tournament operations...</p>;
+  }
 
   return (
     <div className="space-y-10">
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Tournament" value={tournament.season} hint={tournament.name} />
+        <StatCard
+          label="Tournament"
+          value={tournament?.season ?? "No season"}
+          hint={tournament?.name ?? "Create or publish a tournament"}
+        />
         <StatCard label="Teams" value={teams.length} />
         <StatCard
           label="Matches remaining"
@@ -82,10 +115,178 @@ export function OrganizerDashboard() {
         </TabsContent>
 
         <TabsContent value="table" className="mt-8">
-          <StandingsTable teams={teams} fixtures={fixtures} citySlug="abuja" />
+          <StandingsTable teams={teams} fixtures={fixtures} citySlug="abuja" rows={standings} />
         </TabsContent>
 
         <TabsContent value="applications" className="mt-8 space-y-10">
+          <section className="space-y-4">
+            <SectionHeading
+              title="Organization approvals"
+              description="Review organizations before team registration and match operations."
+            />
+            <ul className="space-y-3">
+              {pendingOrganizations.map((organization) => (
+                <li key={organization.id} className="rounded-2xl border border-border bg-card p-4">
+                  <p className="font-medium">{organization.name}</p>
+                  <p className="text-xs text-muted-foreground">{organization.email}</p>
+                  <p className="mt-2 text-sm text-muted-foreground">{organization.description}</p>
+                  <div className="mt-3 flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={async () => {
+                        try {
+                          await reviewOrganization(organization.id, "under-review");
+                          await reviewOrganization(organization.id, "approved");
+                          toast.success("Organization approved");
+                        } catch (error) {
+                          toast.error(
+                            error instanceof Error
+                              ? error.message
+                              : "Unable to approve organization",
+                          );
+                        }
+                      }}
+                    >
+                      Approve
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={async () => {
+                        try {
+                          await reviewOrganization(organization.id, "rejected");
+                          toast.success("Organization rejected");
+                        } catch (error) {
+                          toast.error(
+                            error instanceof Error
+                              ? error.message
+                              : "Unable to reject organization",
+                          );
+                        }
+                      }}
+                    >
+                      Reject
+                    </Button>
+                  </div>
+                </li>
+              ))}
+              {pendingOrganizations.length === 0 && (
+                <p className="rounded-2xl border border-dashed border-border p-6 text-sm text-muted-foreground">
+                  No pending organization approvals.
+                </p>
+              )}
+            </ul>
+          </section>
+
+          <section className="space-y-4">
+            <SectionHeading
+              title="Team approvals"
+              description="Approve teams before fixture publication."
+            />
+            <ul className="space-y-3">
+              {pendingTeams.map((team) => (
+                <li key={team.id} className="rounded-2xl border border-border bg-card p-4">
+                  <p className="font-medium">{team.name}</p>
+                  <p className="text-xs text-muted-foreground">{team.company}</p>
+                  <div className="mt-3 flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={async () => {
+                        try {
+                          await updateTeam(team.id, { status: "under-review" });
+                          await updateTeam(team.id, { status: "approved" });
+                          toast.success("Team approved");
+                        } catch (error) {
+                          toast.error(
+                            error instanceof Error ? error.message : "Unable to approve team",
+                          );
+                        }
+                      }}
+                    >
+                      Approve
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={async () => {
+                        try {
+                          await updateTeam(team.id, { status: "rejected" });
+                          toast.success("Team rejected");
+                        } catch (error) {
+                          toast.error(
+                            error instanceof Error ? error.message : "Unable to reject team",
+                          );
+                        }
+                      }}
+                    >
+                      Reject
+                    </Button>
+                  </div>
+                </li>
+              ))}
+              {pendingTeams.length === 0 && (
+                <p className="rounded-2xl border border-dashed border-border p-6 text-sm text-muted-foreground">
+                  No pending team approvals.
+                </p>
+              )}
+            </ul>
+          </section>
+
+          <section className="space-y-4">
+            <SectionHeading
+              title="Player approvals"
+              description="Approve players after consent and registration checks."
+            />
+            <ul className="space-y-3">
+              {pendingPlayers.map((player) => (
+                <li key={player.id} className="rounded-2xl border border-border bg-card p-4">
+                  <p className="font-medium">{player.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {player.position} · #{player.number || "--"}
+                  </p>
+                  <div className="mt-3 flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={async () => {
+                        try {
+                          await reviewPlayer(player.id, "approved");
+                          toast.success("Player approved");
+                        } catch (error) {
+                          toast.error(
+                            error instanceof Error ? error.message : "Unable to approve player",
+                          );
+                        }
+                      }}
+                    >
+                      Approve
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={async () => {
+                        try {
+                          await reviewPlayer(player.id, "disqualified");
+                          toast.success("Player disqualified");
+                        } catch (error) {
+                          toast.error(
+                            error instanceof Error ? error.message : "Unable to update player",
+                          );
+                        }
+                      }}
+                    >
+                      Disqualify
+                    </Button>
+                  </div>
+                </li>
+              ))}
+              {pendingPlayers.length === 0 && (
+                <p className="rounded-2xl border border-dashed border-border p-6 text-sm text-muted-foreground">
+                  No pending player approvals.
+                </p>
+              )}
+            </ul>
+          </section>
+
           <ApplicationQueue kinds={["team", "player"]} title="Team & player applications" />
           <ApplicationQueue kinds={["volunteer"]} title="Volunteer applications" />
         </TabsContent>
@@ -235,10 +436,57 @@ function ResultRow({
   home: number | null;
   away: number | null;
   done: boolean;
-  onSave: (id: string, h: number, a: number) => void;
+  onSave: (
+    id: string,
+    h: number,
+    a: number,
+    detail?: {
+      halfTimeHome?: number;
+      halfTimeAway?: number;
+      extraTimeHome?: number;
+      extraTimeAway?: number;
+      penaltyHome?: number;
+      penaltyAway?: number;
+      notes?: string;
+      events?: MatchEvent[];
+    },
+  ) => Promise<void>;
 }) {
   const [h, setH] = useState(home === null ? "" : String(home));
   const [a, setA] = useState(away === null ? "" : String(away));
+  const [htHome, setHtHome] = useState("");
+  const [htAway, setHtAway] = useState("");
+  const [etHome, setEtHome] = useState("");
+  const [etAway, setEtAway] = useState("");
+  const [penHome, setPenHome] = useState("");
+  const [penAway, setPenAway] = useState("");
+  const [notes, setNotes] = useState("");
+  const [eventText, setEventText] = useState("");
+
+  const parseEvents = (): MatchEvent[] => {
+    if (!eventText.trim()) return [];
+    const lines = eventText
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    const events: MatchEvent[] = [];
+    for (const line of lines) {
+      const [typeRaw, minuteRaw, teamIdRaw, playerIdRaw, detailRaw] = line.split("|");
+      const type = typeRaw?.trim();
+      if (!type) continue;
+      const event: MatchEvent = { type: type as MatchEvent["type"] };
+      if (minuteRaw?.trim()) {
+        const parsedMinute = Number(minuteRaw.trim());
+        if (Number.isFinite(parsedMinute)) event.minute = parsedMinute;
+      }
+      if (teamIdRaw?.trim()) event.teamId = teamIdRaw.trim();
+      if (playerIdRaw?.trim()) event.playerId = playerIdRaw.trim();
+      if (detailRaw?.trim()) event.detail = detailRaw.trim();
+      events.push(event);
+    }
+    return events;
+  };
 
   return (
     <li className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 sm:flex-row sm:items-center">
@@ -268,20 +516,66 @@ function ResultRow({
           size="sm"
           variant={done ? "outline" : "default"}
           className="rounded-full"
-          onClick={() => {
+          onClick={async () => {
             const hs = Number(h);
             const as = Number(a);
             if (Number.isNaN(hs) || Number.isNaN(as) || h === "" || a === "") {
               toast.error("Enter both scores");
               return;
             }
-            onSave(fixtureId, hs, as);
-            toast.success("Result saved — standings updated");
+            try {
+              const detail: {
+                halfTimeHome?: number;
+                halfTimeAway?: number;
+                extraTimeHome?: number;
+                extraTimeAway?: number;
+                penaltyHome?: number;
+                penaltyAway?: number;
+                notes?: string;
+                events?: MatchEvent[];
+              } = { events: parseEvents() };
+              if (htHome !== "") detail.halfTimeHome = Number(htHome);
+              if (htAway !== "") detail.halfTimeAway = Number(htAway);
+              if (etHome !== "") detail.extraTimeHome = Number(etHome);
+              if (etAway !== "") detail.extraTimeAway = Number(etAway);
+              if (penHome !== "") detail.penaltyHome = Number(penHome);
+              if (penAway !== "") detail.penaltyAway = Number(penAway);
+              if (notes.trim()) detail.notes = notes.trim();
+              await onSave(fixtureId, hs, as, detail);
+              toast.success("Result and events saved");
+            } catch (error) {
+              toast.error(error instanceof Error ? error.message : "Unable to save result");
+            }
           }}
         >
           {done ? "Update" : "Confirm"}
         </Button>
       </div>
+      <div className="grid gap-2 sm:grid-cols-3">
+        <Input value={htHome} onChange={(e) => setHtHome(e.target.value)} placeholder="HT home" />
+        <Input value={htAway} onChange={(e) => setHtAway(e.target.value)} placeholder="HT away" />
+        <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Notes" />
+        <Input value={etHome} onChange={(e) => setEtHome(e.target.value)} placeholder="ET home" />
+        <Input value={etAway} onChange={(e) => setEtAway(e.target.value)} placeholder="ET away" />
+        <div className="grid grid-cols-2 gap-2">
+          <Input
+            value={penHome}
+            onChange={(e) => setPenHome(e.target.value)}
+            placeholder="Pens H"
+          />
+          <Input
+            value={penAway}
+            onChange={(e) => setPenAway(e.target.value)}
+            placeholder="Pens A"
+          />
+        </div>
+      </div>
+      <Textarea
+        value={eventText}
+        onChange={(e) => setEventText(e.target.value)}
+        className="min-h-20"
+        placeholder="Events: goal|12|teamId|playerId|Left-foot finish (one per line)"
+      />
     </li>
   );
 }

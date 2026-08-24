@@ -4,7 +4,6 @@ import { PageHeader, TeamCrest } from "@/components/devkics/brand";
 import { StandingsTable } from "@/components/devkics/match";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { tournaments } from "@/lib/devkics/seed";
 import { useDevKics } from "@/lib/devkics/store";
 
 export const Route = createFileRoute("/$city/tournament")({
@@ -25,9 +24,21 @@ export const Route = createFileRoute("/$city/tournament")({
 
 function TournamentPage() {
   const { city } = Route.useParams();
-  const { teams, fixtures } = useDevKics();
-  const tournament = tournaments[0]!;
+  const { teams, fixtures, tournaments, standings, knockoutRounds, awards } = useDevKics();
+  const tournament = tournaments[0];
   const groups = ["A", "B"];
+
+  if (!tournament) {
+    return (
+      <div className="space-y-4">
+        <PageHeader
+          eyebrow="Tournament"
+          title="No active tournament"
+          description="The organizer has not published tournament details yet."
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-14">
@@ -97,8 +108,55 @@ function TournamentPage() {
           </Button>
         </div>
         <div className="mt-6">
-          <StandingsTable teams={teams} fixtures={fixtures} citySlug={city} compact />
+          <StandingsTable
+            teams={teams}
+            fixtures={fixtures}
+            citySlug={city}
+            rows={standings}
+            compact
+          />
         </div>
+      </section>
+
+      <section>
+        <h2 className="text-2xl font-bold">Knockout bracket</h2>
+        {knockoutRounds.length === 0 ? (
+          <p className="mt-4 text-sm text-muted-foreground">
+            Knockout rounds will appear once fixtures are linked.
+          </p>
+        ) : (
+          <div className="mt-6 grid gap-4 md:grid-cols-2">
+            {knockoutRounds.map((round) => (
+              <div key={round.id} className="rounded-2xl border border-border bg-card p-5">
+                <h3 className="font-display text-lg font-bold">{round.name}</h3>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {round.links.length} links configured
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section>
+        <h2 className="text-2xl font-bold">Awards</h2>
+        {awards.length === 0 ? (
+          <p className="mt-4 text-sm text-muted-foreground">No awards assigned yet.</p>
+        ) : (
+          <div className="mt-6 grid gap-4 sm:grid-cols-2">
+            {awards.map((award) => (
+              <div key={award.id} className="rounded-2xl border border-border bg-card p-5">
+                <h3 className="font-semibold">{award.name}</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {award.description ?? "No description"}
+                </p>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {award.assignments.length} assignment{award.assignments.length === 1 ? "" : "s"}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="rounded-3xl border border-border bg-secondary/40 p-8">
