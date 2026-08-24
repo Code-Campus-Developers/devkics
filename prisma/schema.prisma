@@ -1,0 +1,149 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+  ORGANIZER
+  MANAGER
+  PLAYER
+}
+
+enum CityStatus {
+  LIVE
+  COMING_SOON
+  APPLICATIONS_OPEN
+  SUSPENDED
+  ARCHIVED
+}
+
+enum OrganizerApplicationStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  MORE_INFO_REQUIRED
+  APPROVED
+  REJECTED
+  SUSPENDED
+  WITHDRAWN
+}
+
+model User {
+  id              String           @id @default(cuid())
+  name            String
+  email           String           @unique
+  passwordHash    String
+  isEmailVerified Boolean          @default(true)
+  citySlug        String?
+  teamId          String?
+  playerId        String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  sessions        Session[]
+  assignments     RoleAssignment[]
+  applications    OrganizerApplication[] @relation("ApplicantApplications")
+  reviews         OrganizerApplication[] @relation("ReviewerApplications")
+  auditLogs       AuditLog[]       @relation("AuditActor")
+}
+
+model RoleAssignment {
+  id          String   @id @default(cuid())
+  userId      String
+  role        Role
+  cityId      String?
+  countryCode String?
+  tournament  String?
+  teamScope   String?
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  city        City?    @relation(fields: [cityId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([cityId])
+}
+
+model Session {
+  id               String   @id @default(cuid())
+  userId           String
+  refreshTokenHash String
+  refreshJti       String   @unique
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  createdAt        DateTime @default(now())
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model City {
+  id          String            @id @default(cuid())
+  slug        String            @unique
+  name        String
+  country     String
+  countryCode String
+  status      CityStatus
+  teams       Int               @default(0)
+  players     Int               @default(0)
+  tagline     String
+  accentImage String
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  assignments RoleAssignment[]
+  applications OrganizerApplication[]
+  auditLogs   AuditLog[]
+}
+
+model OrganizerApplication {
+  id                        String                     @id @default(cuid())
+  applicantUserId           String?
+  reviewerUserId            String?
+  cityId                    String?
+  name                      String
+  email                     String
+  city                      String
+  country                   String?
+  detail                    String
+  communityExperience       String?
+  organizingExperience      String?
+  proposedOrganizingTeam    String?
+  expectedOrganizations     String?
+  proposedVenue             String?
+  proposedTournamentPeriod  String?
+  motivation                String?
+  status                    OrganizerApplicationStatus @default(SUBMITTED)
+  reviewNotes               String?
+  submittedAt               DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+  reviewedAt                DateTime?
+
+  applicant User? @relation("ApplicantApplications", fields: [applicantUserId], references: [id], onDelete: SetNull)
+  reviewer  User? @relation("ReviewerApplications", fields: [reviewerUserId], references: [id], onDelete: SetNull)
+  cityRef   City? @relation(fields: [cityId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([city])
+}
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  actorId      String?
+  action       String
+  resourceType String
+  resourceId   String
+  reason       String?
+  oldValue     Json?
+  newValue     Json?
+  cityId       String?
+  createdAt    DateTime @default(now())
+
+  actor User? @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  city  City? @relation(fields: [cityId], references: [id], onDelete: SetNull)
+
+  @@index([resourceType, resourceId])
+  @@index([createdAt])
+}

@@ -22,7 +22,9 @@ import type { Player } from "@/lib/devkics/types";
 export function ManagerDashboard() {
   const { currentUser, teams, players, fixtures, createTeam, addPlayer, removePlayer } =
     useDevKics();
-  const team = teams.find((t) => t.id === currentUser?.teamId || t.managerUserId === currentUser?.id);
+  const team = teams.find(
+    (t) => t.id === currentUser?.teamId || t.managerUserId === currentUser?.id,
+  );
   const [newTeam, setNewTeam] = useState({ name: "", shortName: "", company: "", group: "A" });
   const [newPlayer, setNewPlayer] = useState({
     name: "",
@@ -101,9 +103,7 @@ export function ManagerDashboard() {
 
   const squad = players.filter((p) => p.teamId === team.id);
   const row = computeStandings(teams, fixtures).find((s) => s.teamId === team.id);
-  const teamFixtures = fixtures.filter(
-    (f) => f.homeTeamId === team.id || f.awayTeamId === team.id,
-  );
+  const teamFixtures = fixtures.filter((f) => f.homeTeamId === team.id || f.awayTeamId === team.id);
 
   const submitPlayer = (status: Player["status"]) => {
     if (!newPlayer.name) {

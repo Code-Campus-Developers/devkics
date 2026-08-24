@@ -12,13 +12,7 @@ const kindLabel: Record<ApplicationKind, string> = {
   player: "Player",
 };
 
-export function ApplicationQueue({
-  kinds,
-  title,
-}: {
-  kinds: ApplicationKind[];
-  title: string;
-}) {
+export function ApplicationQueue({ kinds, title }: { kinds: ApplicationKind[]; title: string }) {
   const { applications, reviewApplication } = useDevKics();
   const list = applications.filter((a) => kinds.includes(a.kind));
 
@@ -55,9 +49,13 @@ export function ApplicationQueue({
                 <Button
                   size="sm"
                   className="rounded-full"
-                  onClick={() => {
-                    reviewApplication(a.id, "approved");
-                    toast.success(`${a.name} approved`);
+                  onClick={async () => {
+                    try {
+                      await reviewApplication(a.id, "approved");
+                      toast.success(`${a.name} approved`);
+                    } catch (error) {
+                      toast.error(error instanceof Error ? error.message : "Unable to approve");
+                    }
                   }}
                 >
                   Approve
@@ -66,9 +64,13 @@ export function ApplicationQueue({
                   size="sm"
                   variant="outline"
                   className="rounded-full"
-                  onClick={() => {
-                    reviewApplication(a.id, "rejected");
-                    toast(`${a.name} rejected`);
+                  onClick={async () => {
+                    try {
+                      await reviewApplication(a.id, "rejected");
+                      toast(`${a.name} rejected`);
+                    } catch (error) {
+                      toast.error(error instanceof Error ? error.message : "Unable to reject");
+                    }
                   }}
                 >
                   Reject

@@ -31,8 +31,10 @@ export function SiteHeader() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
   const handleLogout = () => {
-    logout();
-    navigate({ to: "/" });
+    void (async () => {
+      await logout();
+      navigate({ to: "/" });
+    })();
   };
 
   return (

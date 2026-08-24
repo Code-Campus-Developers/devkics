@@ -1,5 +1,10 @@
 export type Role = "admin" | "organizer" | "manager" | "player";
 
+export interface RoleAssignment {
+  role: Role;
+  cityId: string | null;
+}
+
 export interface City {
   slug: string;
   name: string;
@@ -101,16 +106,25 @@ export interface Application {
   city: string;
   detail: string;
   submittedAt: string;
-  status: "pending" | "approved" | "rejected";
+  status:
+    | "draft"
+    | "pending"
+    | "under-review"
+    | "more-info-required"
+    | "approved"
+    | "rejected"
+    | "suspended"
+    | "withdrawn";
 }
 
 export interface User {
   id: string;
   name: string;
   email: string;
-  password: string;
   role: Role;
-  citySlug: string;
+  activeRole: Role;
+  roles: RoleAssignment[];
+  citySlug?: string;
   teamId?: string;
   playerId?: string;
 }

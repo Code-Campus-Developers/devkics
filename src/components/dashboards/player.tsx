@@ -33,9 +33,7 @@ export function PlayerDashboard() {
   }
 
   const row = computeStandings(teams, fixtures).find((s) => s.teamId === team.id);
-  const teamFixtures = fixtures.filter(
-    (f) => f.homeTeamId === team.id || f.awayTeamId === team.id,
-  );
+  const teamFixtures = fixtures.filter((f) => f.homeTeamId === team.id || f.awayTeamId === team.id);
   const next = teamFixtures.find((f) => f.status === "scheduled");
   const squad = players.filter((p) => p.teamId === team.id);
 

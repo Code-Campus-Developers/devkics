@@ -40,9 +40,7 @@ function CityLayout() {
             <h1 className="mt-2 font-display text-4xl font-bold capitalize text-pitch-foreground sm:text-5xl">
               {cityData?.name ?? city}
             </h1>
-            <p className="mt-2 text-pitch-foreground/70">
-              {cityData?.country} · Season 1 · 2026
-            </p>
+            <p className="mt-2 text-pitch-foreground/70">{cityData?.country} · Season 1 · 2026</p>
           </div>
         </div>
         <div className="border-t border-pitch-foreground/10">

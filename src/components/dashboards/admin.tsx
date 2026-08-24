@@ -1,15 +1,15 @@
 import { Link } from "@tanstack/react-router";
+import { toast } from "sonner";
 
 import { SectionHeading, StatCard } from "@/components/devkics/brand";
 import { ApplicationQueue } from "./applications";
 import { StatusDot } from "@/routes/index";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { cities } from "@/lib/devkics/seed";
 import { useDevKics } from "@/lib/devkics/store";
 
 export function AdminDashboard() {
-  const { teams, players, applications, fixtures } = useDevKics();
+  const { teams, players, applications, fixtures, cities, updateCityStatus } = useDevKics();
   const pending = applications.filter((a) => a.status === "pending");
 
   return (
@@ -47,6 +47,42 @@ export function AdminDashboard() {
                 <p className="mt-3 text-sm text-muted-foreground">
                   {c.teams} teams · {c.players} players
                 </p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="rounded-full"
+                    onClick={async () => {
+                      try {
+                        await updateCityStatus(c.slug, "live");
+                        toast.success(`${c.name} set to live`);
+                      } catch (error) {
+                        toast.error(
+                          error instanceof Error ? error.message : "Unable to update city",
+                        );
+                      }
+                    }}
+                  >
+                    Mark live
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="rounded-full"
+                    onClick={async () => {
+                      try {
+                        await updateCityStatus(c.slug, "applications-open");
+                        toast.success(`${c.name} set to applications open`);
+                      } catch (error) {
+                        toast.error(
+                          error instanceof Error ? error.message : "Unable to update city",
+                        );
+                      }
+                    }}
+                  >
+                    Open applications
+                  </Button>
+                </div>
                 {c.status === "live" && (
                   <Button asChild variant="outline" size="sm" className="mt-4 rounded-full">
                     <Link to="/$city" params={{ city: c.slug }}>

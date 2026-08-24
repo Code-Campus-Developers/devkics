@@ -50,11 +50,15 @@ export function ApplicationForm({
   return (
     <form
       className="space-y-5 rounded-3xl border border-border bg-card p-7"
-      onSubmit={(e) => {
+      onSubmit={async (e) => {
         e.preventDefault();
-        submitApplication({ kind, ...form });
-        setDone(true);
-        toast.success("Application submitted");
+        try {
+          await submitApplication({ kind, ...form });
+          setDone(true);
+          toast.success("Application submitted");
+        } catch (error) {
+          toast.error(error instanceof Error ? error.message : "Unable to submit application");
+        }
       }}
     >
       <div className="grid gap-5 sm:grid-cols-2">

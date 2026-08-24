@@ -5,6 +5,7 @@ import * as seed from "./seed";
 import type {
   Application,
   ApplicationKind,
+  City,
   Fixture,
   Player,
   StandingRow,
@@ -12,36 +13,54 @@ import type {
   User,
 } from "./types";
 
-const STORAGE_KEY = "devkics.state.v1";
+interface ApiResponse<T> {
+  ok: boolean;
+  error?: string;
+  [key: string]: unknown;
+  data?: T;
+}
+
+type SignUpInput = {
+  name: string;
+  email: string;
+  password: string;
+  role: User["role"];
+};
 
 interface State {
   teams: Team[];
   players: Player[];
   fixtures: Fixture[];
-  applications: Application[];
-  users: User[];
-  currentUserId: string | null;
+  localApplications: Application[];
+  remoteApplications: Application[];
+  cities: City[];
+  currentUser: User | null;
+  bootstrapped: boolean;
 }
 
 const initialState: State = {
   teams: seed.teams,
   players: seed.players,
   fixtures: seed.fixtures,
-  applications: seed.applications,
-  users: seed.users,
-  currentUserId: null,
+  localApplications: seed.applications.filter((a) => a.kind !== "city-organizer"),
+  remoteApplications: [],
+  cities: seed.cities,
+  currentUser: null,
+  bootstrapped: false,
 };
 
-interface StoreValue extends State {
+interface StoreValue {
+  teams: Team[];
+  players: Player[];
+  fixtures: Fixture[];
+  applications: Application[];
+  cities: City[];
   currentUser: User | null;
-  login: (email: string, password: string) => User | null;
-  register: (input: {
-    name: string;
-    email: string;
-    password: string;
-    role: User["role"];
-  }) => User;
-  logout: () => void;
+  bootstrapped: boolean;
+  login: (email: string, password: string) => Promise<User | null>;
+  register: (input: SignUpInput) => Promise<User | null>;
+  logout: () => Promise<void>;
+  refreshSession: () => Promise<void>;
   createTeam: (input: { name: string; shortName: string; company: string; group: string }) => Team;
   updateTeam: (teamId: string, patch: Partial<Team>) => void;
   addPlayer: (input: {
@@ -67,63 +86,140 @@ interface StoreValue extends State {
     email: string;
     city: string;
     detail: string;
-  }) => void;
-  reviewApplication: (id: string, status: "approved" | "rejected") => void;
-  resetDemo: () => void;
+  }) => Promise<void>;
+  reviewApplication: (id: string, status: "approved" | "rejected") => Promise<void>;
+  updateCityStatus: (slug: string, status: City["status"]) => Promise<void>;
+  resetDemo: () => Promise<void>;
 }
 
 const StoreContext = createContext<StoreValue | null>(null);
 
+async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(path, {
+    credentials: "include",
+    headers: {
+      "content-type": "application/json",
+      ...(init?.headers ?? {}),
+    },
+    ...init,
+  });
+
+  const payload = (await res.json().catch(() => ({}))) as ApiResponse<T> & Record<string, unknown>;
+  if (!res.ok || payload.ok === false) {
+    throw new Error((payload.error as string | undefined) ?? `Request failed: ${res.status}`);
+  }
+
+  return payload as unknown as T;
+}
+
+function toCurrentUser(raw: unknown): User | null {
+  if (!raw || typeof raw !== "object") return null;
+  const value = raw as Record<string, unknown>;
+  if (
+    typeof value["id"] !== "string" ||
+    typeof value["name"] !== "string" ||
+    typeof value["email"] !== "string"
+  ) {
+    return null;
+  }
+
+  const activeRole =
+    typeof value["activeRole"] === "string"
+      ? (value["activeRole"] as User["role"])
+      : ("player" as User["role"]);
+
+  const roles = Array.isArray(value["roles"])
+    ? value["roles"]
+        .map((entry) => {
+          if (!entry || typeof entry !== "object") return null;
+          const role = (entry as Record<string, unknown>)["role"];
+          const cityId = (entry as Record<string, unknown>)["cityId"];
+          if (typeof role !== "string") return null;
+          return {
+            role: role as User["role"],
+            cityId: typeof cityId === "string" ? cityId : null,
+          };
+        })
+        .filter(Boolean)
+    : [];
+
+  return {
+    id: value["id"],
+    name: value["name"],
+    email: value["email"],
+    role: activeRole,
+    activeRole,
+    roles,
+    citySlug: typeof value["citySlug"] === "string" ? value["citySlug"] : undefined,
+    teamId: typeof value["teamId"] === "string" ? value["teamId"] : undefined,
+    playerId: typeof value["playerId"] === "string" ? value["playerId"] : undefined,
+  } as User;
+}
+
 export function DevKicsProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<State>(initialState);
 
-  useEffect(() => {
+  const refreshSession = useCallback(async () => {
     try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (raw) setState({ ...initialState, ...(JSON.parse(raw) as State) });
+      const authPayload = await api<{ user: unknown }>("/api/auth/me", { method: "GET" });
+      const user = toCurrentUser((authPayload as Record<string, unknown>)["user"]);
+      setState((s) => ({ ...s, currentUser: user, bootstrapped: true }));
     } catch {
-      /* ignore */
+      setState((s) => ({ ...s, currentUser: null, bootstrapped: true }));
+    }
+  }, []);
+
+  const refreshCities = useCallback(async () => {
+    try {
+      const payload = await api<{ cities: City[] }>("/api/cities", { method: "GET" });
+      const cities = ((payload as unknown as { cities?: City[] }).cities ?? seed.cities) as City[];
+      setState((s) => ({ ...s, cities }));
+    } catch {
+      setState((s) => ({ ...s, cities: seed.cities }));
+    }
+  }, []);
+
+  const refreshOrganizerApplications = useCallback(async () => {
+    try {
+      const payload = await api<{ applications: Application[] }>("/api/applications", {
+        method: "GET",
+      });
+      const applications = ((payload as unknown as { applications?: Application[] }).applications ??
+        []) as Application[];
+      setState((s) => ({ ...s, remoteApplications: applications }));
+    } catch {
+      setState((s) => ({ ...s, remoteApplications: [] }));
     }
   }, []);
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    } catch {
-      /* ignore */
-    }
-  }, [state]);
+    void Promise.all([refreshSession(), refreshCities(), refreshOrganizerApplications()]);
+  }, [refreshSession, refreshCities, refreshOrganizerApplications]);
 
-  const currentUser = useMemo(
-    () => state.users.find((u) => u.id === state.currentUserId) ?? null,
-    [state.users, state.currentUserId],
-  );
-
-  const login = useCallback<StoreValue["login"]>(
-    (email, password) => {
-      const user = state.users.find(
-        (u) => u.email.toLowerCase() === email.trim().toLowerCase() && u.password === password,
-      );
-      if (user) setState((s) => ({ ...s, currentUserId: user.id }));
-      return user ?? null;
-    },
-    [state.users],
-  );
-
-  const register = useCallback<StoreValue["register"]>((input) => {
-    const user: User = {
-      id: `u-${Date.now()}`,
-      name: input.name,
-      email: input.email,
-      password: input.password,
-      role: input.role,
-      citySlug: "abuja",
-    };
-    setState((s) => ({ ...s, users: [...s.users, user], currentUserId: user.id }));
+  const login = useCallback<StoreValue["login"]>(async (email, password) => {
+    const payload = await api<{ user: unknown }>("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    });
+    const user = toCurrentUser((payload as unknown as { user: unknown }).user);
+    setState((s) => ({ ...s, currentUser: user }));
     return user;
   }, []);
 
-  const logout = useCallback(() => setState((s) => ({ ...s, currentUserId: null })), []);
+  const register = useCallback<StoreValue["register"]>(async (input) => {
+    const payload = await api<{ user: unknown }>("/api/auth/register", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+    const user = toCurrentUser((payload as unknown as { user: unknown }).user);
+    setState((s) => ({ ...s, currentUser: user }));
+    return user;
+  }, []);
+
+  const logout = useCallback<StoreValue["logout"]>(async () => {
+    await api<{ ok: boolean }>("/api/auth/logout", { method: "POST" });
+    setState((s) => ({ ...s, currentUser: null }));
+  }, []);
 
   const createTeam = useCallback<StoreValue["createTeam"]>(
     (input) => {
@@ -133,8 +229,8 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
         name: input.name,
         shortName: input.shortName.toUpperCase().slice(0, 3),
         company: input.company,
-        managerUserId: currentUser?.id ?? "u-manager",
-        managerName: currentUser?.name ?? "Team Manager",
+        managerUserId: state.currentUser?.id ?? "u-manager",
+        managerName: state.currentUser?.name ?? "Team Manager",
         color: "green",
         group: input.group,
         founded: "2026",
@@ -142,11 +238,11 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
       setState((s) => ({
         ...s,
         teams: [...s.teams, team],
-        users: s.users.map((u) => (u.id === currentUser?.id ? { ...u, teamId: team.id } : u)),
+        currentUser: s.currentUser ? { ...s.currentUser, teamId: team.id } : s.currentUser,
       }));
       return team;
     },
-    [currentUser],
+    [state.currentUser],
   );
 
   const updateTeam = useCallback<StoreValue["updateTeam"]>((teamId, patch) => {
@@ -204,31 +300,87 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
     }));
   }, []);
 
-  const submitApplication = useCallback<StoreValue["submitApplication"]>((input) => {
-    const application: Application = {
-      id: `ap-${Date.now()}`,
-      ...input,
-      submittedAt: new Date().toISOString().slice(0, 10),
-      status: "pending",
-    };
-    setState((s) => ({ ...s, applications: [application, ...s.applications] }));
-  }, []);
+  const submitApplication = useCallback<StoreValue["submitApplication"]>(
+    async (input) => {
+      if (input.kind === "city-organizer") {
+        await api<{ application: Application }>("/api/applications", {
+          method: "POST",
+          body: JSON.stringify(input),
+        });
+        await refreshOrganizerApplications();
+        return;
+      }
 
-  const reviewApplication = useCallback<StoreValue["reviewApplication"]>((id, status) => {
+      const application: Application = {
+        id: `ap-${Date.now()}`,
+        ...input,
+        submittedAt: new Date().toISOString().slice(0, 10),
+        status: "pending",
+      };
+      setState((s) => ({ ...s, localApplications: [application, ...s.localApplications] }));
+    },
+    [refreshOrganizerApplications],
+  );
+
+  const reviewApplication = useCallback<StoreValue["reviewApplication"]>(
+    async (id, status) => {
+      const isRemote = state.remoteApplications.some((a) => a.id === id);
+      if (isRemote) {
+        await api<{ application: Application }>(`/api/applications/${id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ status }),
+        });
+        await refreshOrganizerApplications();
+        return;
+      }
+
+      setState((s) => ({
+        ...s,
+        localApplications: s.localApplications.map((a) => (a.id === id ? { ...a, status } : a)),
+      }));
+    },
+    [state.remoteApplications, refreshOrganizerApplications],
+  );
+
+  const updateCityStatus = useCallback<StoreValue["updateCityStatus"]>(
+    async (slug, status) => {
+      await api<{ city: City }>(`/api/cities/${encodeURIComponent(slug)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status }),
+      });
+      await refreshCities();
+    },
+    [refreshCities],
+  );
+
+  const resetDemo = useCallback<StoreValue["resetDemo"]>(async () => {
     setState((s) => ({
       ...s,
-      applications: s.applications.map((a) => (a.id === id ? { ...a, status } : a)),
+      teams: seed.teams,
+      players: seed.players,
+      fixtures: seed.fixtures,
+      localApplications: seed.applications.filter((a) => a.kind !== "city-organizer"),
     }));
-  }, []);
+    await Promise.all([refreshOrganizerApplications(), refreshCities(), refreshSession()]);
+  }, [refreshCities, refreshOrganizerApplications, refreshSession]);
 
-  const resetDemo = useCallback(() => setState(initialState), []);
+  const applications = useMemo(
+    () => [...state.remoteApplications, ...state.localApplications],
+    [state.remoteApplications, state.localApplications],
+  );
 
   const value: StoreValue = {
-    ...state,
-    currentUser,
+    teams: state.teams,
+    players: state.players,
+    fixtures: state.fixtures,
+    applications,
+    cities: state.cities,
+    currentUser: state.currentUser,
+    bootstrapped: state.bootstrapped,
     login,
     register,
     logout,
+    refreshSession,
     createTeam,
     updateTeam,
     addPlayer,
@@ -237,6 +389,7 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
     updateResult,
     submitApplication,
     reviewApplication,
+    updateCityStatus,
     resetDemo,
   };
 

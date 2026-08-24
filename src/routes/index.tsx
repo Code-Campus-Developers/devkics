@@ -75,7 +75,9 @@ function Home() {
                 variant="outline"
                 className="rounded-full border-pitch-foreground/25 bg-transparent px-7 text-pitch-foreground hover:bg-primary-foreground/10 hover:text-pitch-foreground"
               >
-                <Link to="/$city" params={{ city: "abuja" }}>Explore Abuja</Link>
+                <Link to="/$city" params={{ city: "abuja" }}>
+                  Explore Abuja
+                </Link>
               </Button>
             </div>
             <dl className="mt-14 grid max-w-2xl grid-cols-3 gap-6 border-t border-pitch-foreground/15 pt-8">
@@ -102,7 +104,9 @@ function Home() {
           description={tournament.summary}
           action={
             <Button asChild variant="outline" className="rounded-full">
-              <Link to="/$city" params={{ city: "abuja" }}>City portal</Link>
+              <Link to="/$city" params={{ city: "abuja" }}>
+                City portal
+              </Link>
             </Button>
           }
         />
@@ -258,8 +262,8 @@ function Home() {
           <div className="p-8 sm:p-12">
             <h2 className="text-3xl font-bold">Bring DevKics to your city</h2>
             <p className="mt-4 text-muted-foreground">
-              We provide the playbook, the platform and sponsorship support. You bring the
-              community and the pitch.
+              We provide the playbook, the platform and sponsorship support. You bring the community
+              and the pitch.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Button asChild className="rounded-full px-6">

@@ -46,14 +46,14 @@ const titles: Record<string, { title: string; description: string }> = {
 };
 
 function DashboardPage() {
-  const { currentUser, logout } = useDevKics();
+  const { currentUser, logout, bootstrapped } = useDevKics();
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (!currentUser) navigate({ to: "/auth" });
-  }, [currentUser, navigate]);
+    if (bootstrapped && !currentUser) navigate({ to: "/auth" });
+  }, [bootstrapped, currentUser, navigate]);
 
-  if (!currentUser) return null;
+  if (!bootstrapped || !currentUser) return null;
 
   const meta = titles[currentUser.role]!;
 
@@ -67,8 +67,8 @@ function DashboardPage() {
           <Button
             variant="outline"
             className="rounded-full"
-            onClick={() => {
-              logout();
+            onClick={async () => {
+              await logout();
               navigate({ to: "/" });
             }}
           >

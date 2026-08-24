@@ -43,9 +43,7 @@ function TeamDetail() {
 
   const squad = players.filter((p) => p.teamId === team.id);
   const row = computeStandings(teams, fixtures).find((s) => s.teamId === team.id);
-  const teamFixtures = fixtures.filter(
-    (f) => f.homeTeamId === team.id || f.awayTeamId === team.id,
-  );
+  const teamFixtures = fixtures.filter((f) => f.homeTeamId === team.id || f.awayTeamId === team.id);
 
   return (
     <div className="space-y-12">

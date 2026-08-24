@@ -41,7 +41,7 @@ const demoAccounts: { role: Role; email: string; label: string }[] = [
 ];
 
 function AuthPage() {
-  const { login, register, currentUser } = useDevKics();
+  const { login, register, currentUser, bootstrapped } = useDevKics();
   const navigate = useNavigate();
   const [signIn, setSignIn] = useState({ email: "", password: "" });
   const [signUp, setSignUp] = useState({
@@ -52,8 +52,8 @@ function AuthPage() {
   });
 
   useEffect(() => {
-    if (currentUser) navigate({ to: "/dashboard" });
-  }, [currentUser, navigate]);
+    if (bootstrapped && currentUser) navigate({ to: "/dashboard" });
+  }, [bootstrapped, currentUser, navigate]);
 
   return (
     <div className="mx-auto grid max-w-5xl gap-10 px-5 py-16 lg:grid-cols-2">
@@ -61,8 +61,7 @@ function AuthPage() {
         <Logo />
         <h1 className="mt-8 text-3xl font-bold sm:text-4xl">Your locker room</h1>
         <p className="mt-3 max-w-md text-muted-foreground">
-          Sign in to manage your squad, run your city tournament, or follow your own player
-          profile.
+          Sign in to manage your squad, run your city tournament, or follow your own player profile.
         </p>
 
         <div className="mt-10 rounded-3xl border border-border bg-secondary/40 p-6">
@@ -101,14 +100,18 @@ function AuthPage() {
           <TabsContent value="signin" className="mt-6">
             <form
               className="space-y-5"
-              onSubmit={(e) => {
+              onSubmit={async (e) => {
                 e.preventDefault();
-                const user = login(signIn.email, signIn.password);
-                if (user) {
+                try {
+                  const user = await login(signIn.email, signIn.password);
+                  if (!user) {
+                    toast.error("Invalid email or password");
+                    return;
+                  }
                   toast.success(`Welcome back, ${user.name.split(" ")[0]}`);
                   navigate({ to: "/dashboard" });
-                } else {
-                  toast.error("Invalid email or password");
+                } catch (error) {
+                  toast.error(error instanceof Error ? error.message : "Sign in failed");
                 }
               }}
             >
@@ -141,11 +144,19 @@ function AuthPage() {
           <TabsContent value="register" className="mt-6">
             <form
               className="space-y-5"
-              onSubmit={(e) => {
+              onSubmit={async (e) => {
                 e.preventDefault();
-                register(signUp);
-                toast.success("Account created");
-                navigate({ to: "/dashboard" });
+                try {
+                  const user = await register(signUp);
+                  if (!user) {
+                    toast.error("Registration failed");
+                    return;
+                  }
+                  toast.success("Account created");
+                  navigate({ to: "/dashboard" });
+                } catch (error) {
+                  toast.error(error instanceof Error ? error.message : "Registration failed");
+                }
               }}
             >
               <div className="space-y-2">
