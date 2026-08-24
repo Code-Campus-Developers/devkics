@@ -1,4 +1,4 @@
-import { MatchEventType, MatchStage, MatchStatus, TournamentStatus } from ".prisma/client";
+import { MatchEventType, MatchStage, MatchStatus, TournamentStatus } from "@prisma/client";
 import { describe, expect, it } from "vitest";
 
 import {
