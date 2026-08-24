@@ -24,4 +24,4 @@ COPY --from=build /app/.output ./.output
 COPY --from=build /app/public ./public
 COPY --from=build /app/package.json ./package.json
 EXPOSE 8080
-CMD ["bun", "run", "preview", "--", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["bun", ".output/server/index.mjs"]
