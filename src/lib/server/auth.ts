@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import bcrypt from "bcryptjs";
-import { Role, type RoleAssignment, type User } from "@prisma/client";
+import { Role, type RoleAssignment, type User } from ".prisma/client";
 import { SignJWT, errors, jwtVerify } from "jose";
 
 import { prisma } from "./db";

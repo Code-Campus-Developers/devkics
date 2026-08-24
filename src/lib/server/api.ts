@@ -12,7 +12,7 @@ import {
   TournamentStatus,
   type RoleAssignment,
   type User,
-} from "@prisma/client";
+} from ".prisma/client";
 import { z } from "zod";
 
 import {

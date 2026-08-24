@@ -10,7 +10,7 @@ import {
   type Match,
   type MatchEvent,
   type Team,
-} from "@prisma/client";
+} from ".prisma/client";
 
 type StandingRow = {
   teamId: string;

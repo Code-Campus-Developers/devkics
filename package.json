@@ -4,6 +4,7 @@
   "sideEffects": false,
   "type": "module",
   "scripts": {
+    "postinstall": "node scripts/fix-prisma-exports.js",
     "dev": "vite dev",
     "build": "vite build",
     "build:dev": "vite build --mode development",
@@ -16,7 +17,7 @@
     "test:integration": "vitest run --maxWorkers=1 --sequence.concurrent false tests/integration",
     "test:coverage": "vitest run --coverage",
     "e2e": "playwright test",
-    "prisma:generate": "prisma generate",
+    "prisma:generate": "prisma generate && node scripts/fix-prisma-exports.js",
     "prisma:validate": "prisma validate",
     "prisma:migrate": "prisma migrate dev --name phase1_foundation",
     "prisma:deploy": "prisma migrate deploy",

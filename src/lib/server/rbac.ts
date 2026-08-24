@@ -1,4 +1,4 @@
-import type { RoleAssignment, Role } from "@prisma/client";
+import type { RoleAssignment, Role } from ".prisma/client";
 
 export type ScopedRole = Lowercase<Role>;
 

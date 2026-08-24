@@ -100,10 +100,16 @@
   --flare: oklch(0.72 0.17 55);
   --flare-foreground: oklch(0.22 0.05 50);
 
-  --gradient-pitch: linear-gradient(140deg, oklch(0.24 0.06 160), oklch(0.36 0.1 155) 55%, oklch(0.3 0.09 148));
+  --gradient-pitch: linear-gradient(
+    140deg,
+    oklch(0.24 0.06 160),
+    oklch(0.36 0.1 155) 55%,
+    oklch(0.3 0.09 148)
+  );
   --gradient-flare: linear-gradient(100deg, var(--primary), var(--flare));
   --shadow-card: 0 1px 2px oklch(0.2 0.03 158 / 0.05), 0 12px 32px -18px oklch(0.2 0.05 158 / 0.35);
-  --shadow-lift: 0 4px 10px -4px oklch(0.2 0.03 158 / 0.12), 0 24px 48px -24px oklch(0.2 0.06 158 / 0.4);
+  --shadow-lift:
+    0 4px 10px -4px oklch(0.2 0.03 158 / 0.12), 0 24px 48px -24px oklch(0.2 0.06 158 / 0.4);
 
   --chart-1: oklch(0.52 0.145 155);
   --chart-2: oklch(0.72 0.17 55);
@@ -205,7 +211,12 @@
 
 @utility pitch-lines {
   background-image:
-    radial-gradient(circle at 50% 50%, transparent 78px, oklch(1 0 0 / 0.09) 79px, transparent 81px),
+    radial-gradient(
+      circle at 50% 50%,
+      transparent 78px,
+      oklch(1 0 0 / 0.09) 79px,
+      transparent 81px
+    ),
     linear-gradient(to right, oklch(1 0 0 / 0.06) 1px, transparent 1px);
   background-size:
     100% 100%,
