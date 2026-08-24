@@ -2,6 +2,8 @@ import { expect, test } from "@playwright/test";
 
 test.describe("Phase 1 foundation", () => {
   test("login and dashboard access works", async ({ page }) => {
+    const email = `phase1-user-${Date.now()}@devkics.test`;
+
     await page.goto("/auth");
 
     await page.getByRole("tab", { name: "Register" }).click();
@@ -9,12 +11,12 @@ test.describe("Phase 1 foundation", () => {
     await page
       .getByRole("tabpanel", { name: "Register" })
       .getByPlaceholder("you@company.com")
-      .fill("phase1-user@devkics.test");
+      .fill(email);
     await page.getByPlaceholder("Choose a password").fill("devkics123");
     await page.getByRole("button", { name: "Create account" }).click();
 
     await expect(page).toHaveURL(/\/dashboard/);
-    await expect(page.getByText("Player")).toBeVisible();
+    await expect(page.getByText("Signed in as Phase One User")).toBeVisible();
   });
 
   test("city organizer application can be submitted from public route", async ({ page }) => {
@@ -31,5 +33,37 @@ test.describe("Phase 1 foundation", () => {
 
     await page.getByRole("button", { name: "Apply to organize" }).click();
     await expect(page.getByText("Application received")).toBeVisible();
+  });
+
+  test("rejects unauthorized and non-admin city status updates", async ({ request }) => {
+    const managerEmail = `rbac-manager-${Date.now()}@devkics.test`;
+
+    const unauthenticatedPatch = await request.patch("/api/cities/abuja", {
+      data: { status: "archived" },
+    });
+    expect(unauthenticatedPatch.status()).toBe(401);
+
+    const registerRes = await request.post("/api/auth/register", {
+      data: {
+        name: "RBAC Manager",
+        email: managerEmail,
+        password: "devkics123",
+        role: "manager",
+        citySlug: "abuja",
+      },
+    });
+    expect(registerRes.status()).toBe(201);
+
+    const cookies = registerRes
+      .headersArray()
+      .filter((header) => header.name.toLowerCase() === "set-cookie")
+      .map((header) => header.value.split(";")[0])
+      .join("; ");
+
+    const managerPatch = await request.patch("/api/cities/abuja", {
+      data: { status: "archived" },
+      headers: { cookie: cookies },
+    });
+    expect(managerPatch.status()).toBe(403);
   });
 });

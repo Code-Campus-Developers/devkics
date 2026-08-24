@@ -5,7 +5,8 @@ import { FormPill, TeamCrest } from "@/components/devkics/brand";
 import { MatchRow } from "@/components/devkics/match";
 import { Badge } from "@/components/ui/badge";
 import { teams as seedTeams } from "@/lib/devkics/seed";
-import { computeStandings, useDevKics } from "@/lib/devkics/store";
+import { useDevKics } from "@/lib/devkics/store";
+import { computeStandings } from "@/lib/devkics/standings";
 
 export const Route = createFileRoute("/$city/teams/$teamId")({
   beforeLoad: ({ params }) => {

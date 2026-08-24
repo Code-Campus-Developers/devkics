@@ -78,7 +78,7 @@ export function SiteHeader() {
             </DropdownMenu>
           ) : (
             <Button asChild size="sm" className="hidden rounded-full sm:inline-flex">
-              <Link to="/auth">Sign in</Link>
+              <a href="/auth">Sign in</a>
             </Button>
           )}
 
@@ -91,22 +91,22 @@ export function SiteHeader() {
             <SheetContent side="right" className="w-72 p-6">
               <div className="mt-8 flex flex-col gap-1">
                 {nav.map((item) => (
-                  <Link
+                  <a
                     key={item.to}
-                    to={item.to}
+                    href={item.to}
                     onClick={() => setOpen(false)}
                     className="rounded-lg px-3 py-2.5 text-sm font-medium hover:bg-accent"
                   >
                     {item.label}
-                  </Link>
+                  </a>
                 ))}
-                <Link
-                  to={currentUser ? "/dashboard" : "/auth"}
+                <a
+                  href={currentUser ? "/dashboard" : "/auth"}
                   onClick={() => setOpen(false)}
                   className="mt-3 rounded-lg bg-primary px-3 py-2.5 text-center text-sm font-semibold text-primary-foreground"
                 >
                   {currentUser ? "Dashboard" : "Sign in"}
-                </Link>
+                </a>
               </div>
             </SheetContent>
           </Sheet>
@@ -164,12 +164,12 @@ function FooterCol({ title, links }: { title: string; links: { label: string; to
       <ul className="space-y-2">
         {links.map((l) => (
           <li key={l.to + l.label}>
-            <Link
-              to={l.to}
+            <a
+              href={l.to}
               className="text-sm text-pitch-foreground/80 transition-colors hover:text-pitch-foreground"
             >
               {l.label}
-            </Link>
+            </a>
           </li>
         ))}
       </ul>

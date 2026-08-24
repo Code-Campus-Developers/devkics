@@ -18,6 +18,7 @@ import {
   verifyPassword,
 } from "./auth";
 import { prisma } from "./db";
+import { applyRateLimit, getClientIp, toRateLimitHeaders } from "./rate-limit";
 import { hasScopedRole } from "./rbac";
 
 type Json = Record<string, unknown>;
@@ -113,15 +114,15 @@ function mapApplicationPayload(application: {
   };
 }
 
-function isAdmin(user: User, assignments: RoleAssignment[]) {
-  return user.email.toLowerCase() === "admin@devkics.com" || hasScopedRole(assignments, Role.ADMIN);
+function isAdmin(_user: User, assignments: RoleAssignment[]) {
+  return hasScopedRole(assignments, Role.ADMIN);
 }
 
 const registerSchema = z.object({
   name: z.string().min(2),
   email: z.string().email(),
-  password: z.string().min(6),
-  role: z.enum(["admin", "organizer", "manager", "player"]),
+  password: z.string().min(8).max(72),
+  role: z.enum(["organizer", "manager", "player"]),
   citySlug: z.string().optional(),
 });
 
@@ -139,7 +140,7 @@ const organizerApplicationSchema = z.object({
   name: z.string().min(2),
   email: z.string().email(),
   city: z.string().min(2),
-  detail: z.string().min(10),
+  detail: z.string().min(10).max(2_000),
   country: z.string().optional(),
   communityExperience: z.string().optional(),
   organizingExperience: z.string().optional(),
@@ -162,6 +163,15 @@ const reviewSchema = z.object({
   ]),
   reviewNotes: z.string().optional(),
 });
+
+const paginationSchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(50).default(20),
+});
+
+const AUTH_RATE_LIMIT = { limit: 12, windowMs: 60_000 };
+const APPLICATION_SUBMIT_RATE_LIMIT = { limit: 10, windowMs: 60_000 };
+const APPLICATION_REVIEW_RATE_LIMIT = { limit: 60, windowMs: 60_000 };
 
 function toOrganizerStatus(status: string): OrganizerApplicationStatus {
   if (status === "submitted") return OrganizerApplicationStatus.SUBMITTED;
@@ -192,13 +202,43 @@ async function parseJsonBody(request: Request) {
 export async function handleApiRequest(request: Request): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/api/")) return null;
+  const clientIp = getClientIp(request);
 
   const auth = await getAuthenticatedUser(request);
   const authHeaders = new Headers();
   setCookies(authHeaders, auth.headers);
 
+  const applyEndpointRateLimit = (key: string, limit: { limit: number; windowMs: number }) => {
+    const result = applyRateLimit(`${clientIp}:${key}`, limit);
+    if (!result.allowed) {
+      const headers = new Headers(authHeaders);
+      for (const [name, value] of Object.entries(toRateLimitHeaders(result))) {
+        headers.set(name, value);
+      }
+      headers.set(
+        "retry-after",
+        String(Math.max(Math.ceil((result.resetAt - Date.now()) / 1000), 1)),
+      );
+
+      return jsonResponse(
+        429,
+        { ok: false, error: "Too many requests. Try again shortly." },
+        headers,
+      );
+    }
+
+    for (const [name, value] of Object.entries(toRateLimitHeaders(result))) {
+      authHeaders.set(name, value);
+    }
+
+    return null;
+  };
+
   // auth
   if (request.method === "POST" && url.pathname === "/api/auth/register") {
+    const guard = applyEndpointRateLimit("auth:register", AUTH_RATE_LIMIT);
+    if (guard) return guard;
+
     const body = await parseJsonBody(request);
     const parsed = registerSchema.safeParse(body);
     if (!parsed.success) {
@@ -242,6 +282,9 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
   }
 
   if (request.method === "POST" && url.pathname === "/api/auth/login") {
+    const guard = applyEndpointRateLimit("auth:login", AUTH_RATE_LIMIT);
+    if (guard) return guard;
+
     const body = await parseJsonBody(request);
     const parsed = loginSchema.safeParse(body);
     if (!parsed.success) {
@@ -337,18 +380,60 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
 
   // organizer applications
   if (request.method === "GET" && url.pathname === "/api/applications") {
-    const applications = await prisma.organizerApplication.findMany({
-      orderBy: { submittedAt: "desc" },
+    if (!auth.user) {
+      return jsonResponse(401, { ok: false, error: "Unauthorized" }, authHeaders);
+    }
+
+    if (!isAdmin(auth.user, auth.assignments)) {
+      return jsonResponse(403, { ok: false, error: "Forbidden" }, authHeaders);
+    }
+
+    const pagination = paginationSchema.safeParse({
+      page: url.searchParams.get("page") ?? "1",
+      pageSize: url.searchParams.get("pageSize") ?? "20",
     });
+
+    if (!pagination.success) {
+      return jsonResponse(400, { ok: false, error: "Invalid pagination" }, authHeaders);
+    }
+
+    const { page, pageSize } = pagination.data;
+    const skip = (page - 1) * pageSize;
+
+    const applications = await prisma.organizerApplication.findMany({
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        city: true,
+        detail: true,
+        submittedAt: true,
+        status: true,
+      },
+      orderBy: { submittedAt: "desc" },
+      skip,
+      take: pageSize,
+    });
+
+    const total = await prisma.organizerApplication.count();
 
     return jsonResponse(
       200,
-      { ok: true, applications: applications.map(mapApplicationPayload) },
+      {
+        ok: true,
+        applications: applications.map(mapApplicationPayload),
+        page,
+        pageSize,
+        total,
+      },
       authHeaders,
     );
   }
 
   if (request.method === "POST" && url.pathname === "/api/applications") {
+    const guard = applyEndpointRateLimit("applications:create", APPLICATION_SUBMIT_RATE_LIMIT);
+    if (guard) return guard;
+
     const body = await parseJsonBody(request);
     const parsed = organizerApplicationSchema.safeParse(body);
     if (!parsed.success) {
@@ -385,6 +470,9 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
   }
 
   if (request.method === "PATCH" && url.pathname.startsWith("/api/applications/")) {
+    const guard = applyEndpointRateLimit("applications:review", APPLICATION_REVIEW_RATE_LIMIT);
+    if (guard) return guard;
+
     if (!auth.user) {
       return jsonResponse(401, { ok: false, error: "Unauthorized" }, authHeaders);
     }

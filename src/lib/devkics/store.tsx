@@ -1,17 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import * as seed from "./seed";
-import type {
-  Application,
-  ApplicationKind,
-  City,
-  Fixture,
-  Player,
-  StandingRow,
-  Team,
-  User,
-} from "./types";
+import type { Application, ApplicationKind, City, Fixture, Player, Team, User } from "./types";
 
 interface ApiResponse<T> {
   ok: boolean;
@@ -32,10 +24,6 @@ interface State {
   players: Player[];
   fixtures: Fixture[];
   localApplications: Application[];
-  remoteApplications: Application[];
-  cities: City[];
-  currentUser: User | null;
-  bootstrapped: boolean;
 }
 
 const initialState: State = {
@@ -43,10 +31,12 @@ const initialState: State = {
   players: seed.players,
   fixtures: seed.fixtures,
   localApplications: seed.applications.filter((a) => a.kind !== "city-organizer"),
-  remoteApplications: [],
-  cities: seed.cities,
-  currentUser: null,
-  bootstrapped: false,
+};
+
+const QUERY_KEYS = {
+  auth: ["auth", "me"] as const,
+  cities: ["cities"] as const,
+  applications: ["applications"] as const,
 };
 
 interface StoreValue {
@@ -158,68 +148,115 @@ function toCurrentUser(raw: unknown): User | null {
 
 export function DevKicsProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<State>(initialState);
+  const queryClient = useQueryClient();
+
+  const authQuery = useQuery({
+    queryKey: QUERY_KEYS.auth,
+    queryFn: async () => {
+      const authPayload = await api<{ user: unknown }>("/api/auth/me", { method: "GET" });
+      return toCurrentUser((authPayload as Record<string, unknown>)["user"]);
+    },
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
+
+  const currentUser = authQuery.data ?? null;
+  const bootstrapped = authQuery.isFetched;
+
+  const citiesQuery = useQuery({
+    queryKey: QUERY_KEYS.cities,
+    queryFn: async () => {
+      const payload = await api<{ cities: City[] }>("/api/cities", { method: "GET" });
+      return ((payload as unknown as { cities?: City[] }).cities ?? seed.cities) as City[];
+    },
+    staleTime: 120_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
+  });
+
+  const canViewOrganizerApplications = currentUser?.role === "admin";
+
+  const applicationsQuery = useQuery({
+    queryKey: QUERY_KEYS.applications,
+    queryFn: async () => {
+      const payload = await api<{ applications: Application[] }>(
+        "/api/applications?page=1&pageSize=50",
+        { method: "GET" },
+      );
+      return ((payload as unknown as { applications?: Application[] }).applications ??
+        []) as Application[];
+    },
+    enabled: canViewOrganizerApplications,
+    staleTime: 20_000,
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
+
+  const cities = citiesQuery.data ?? seed.cities;
+  const remoteApplications = useMemo(
+    () => (canViewOrganizerApplications ? (applicationsQuery.data ?? []) : []),
+    [applicationsQuery.data, canViewOrganizerApplications],
+  );
 
   const refreshSession = useCallback(async () => {
-    try {
-      const authPayload = await api<{ user: unknown }>("/api/auth/me", { method: "GET" });
-      const user = toCurrentUser((authPayload as Record<string, unknown>)["user"]);
-      setState((s) => ({ ...s, currentUser: user, bootstrapped: true }));
-    } catch {
-      setState((s) => ({ ...s, currentUser: null, bootstrapped: true }));
-    }
-  }, []);
+    await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.auth });
+    await queryClient.refetchQueries({ queryKey: QUERY_KEYS.auth, exact: true });
+  }, [queryClient]);
 
   const refreshCities = useCallback(async () => {
-    try {
-      const payload = await api<{ cities: City[] }>("/api/cities", { method: "GET" });
-      const cities = ((payload as unknown as { cities?: City[] }).cities ?? seed.cities) as City[];
-      setState((s) => ({ ...s, cities }));
-    } catch {
-      setState((s) => ({ ...s, cities: seed.cities }));
-    }
-  }, []);
+    await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.cities });
+  }, [queryClient]);
 
   const refreshOrganizerApplications = useCallback(async () => {
-    try {
-      const payload = await api<{ applications: Application[] }>("/api/applications", {
-        method: "GET",
-      });
-      const applications = ((payload as unknown as { applications?: Application[] }).applications ??
-        []) as Application[];
-      setState((s) => ({ ...s, remoteApplications: applications }));
-    } catch {
-      setState((s) => ({ ...s, remoteApplications: [] }));
+    if (!canViewOrganizerApplications) {
+      queryClient.removeQueries({ queryKey: QUERY_KEYS.applications });
+      return;
     }
-  }, []);
+    await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.applications });
+  }, [canViewOrganizerApplications, queryClient]);
 
   useEffect(() => {
-    void Promise.all([refreshSession(), refreshCities(), refreshOrganizerApplications()]);
-  }, [refreshSession, refreshCities, refreshOrganizerApplications]);
+    if (!canViewOrganizerApplications) {
+      queryClient.removeQueries({ queryKey: QUERY_KEYS.applications });
+    }
+  }, [canViewOrganizerApplications, queryClient]);
 
-  const login = useCallback<StoreValue["login"]>(async (email, password) => {
-    const payload = await api<{ user: unknown }>("/api/auth/login", {
-      method: "POST",
-      body: JSON.stringify({ email, password }),
-    });
-    const user = toCurrentUser((payload as unknown as { user: unknown }).user);
-    setState((s) => ({ ...s, currentUser: user }));
-    return user;
-  }, []);
+  const login = useCallback<StoreValue["login"]>(
+    async (email, password) => {
+      const payload = await api<{ user: unknown }>("/api/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ email, password }),
+      });
+      const user = toCurrentUser((payload as unknown as { user: unknown }).user);
+      queryClient.setQueryData(QUERY_KEYS.auth, user);
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.cities });
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.applications });
+      return user;
+    },
+    [queryClient],
+  );
 
-  const register = useCallback<StoreValue["register"]>(async (input) => {
-    const payload = await api<{ user: unknown }>("/api/auth/register", {
-      method: "POST",
-      body: JSON.stringify(input),
-    });
-    const user = toCurrentUser((payload as unknown as { user: unknown }).user);
-    setState((s) => ({ ...s, currentUser: user }));
-    return user;
-  }, []);
+  const register = useCallback<StoreValue["register"]>(
+    async (input) => {
+      const payload = await api<{ user: unknown }>("/api/auth/register", {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+      const user = toCurrentUser((payload as unknown as { user: unknown }).user);
+      queryClient.setQueryData(QUERY_KEYS.auth, user);
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.cities });
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.applications });
+      return user;
+    },
+    [queryClient],
+  );
 
   const logout = useCallback<StoreValue["logout"]>(async () => {
     await api<{ ok: boolean }>("/api/auth/logout", { method: "POST" });
-    setState((s) => ({ ...s, currentUser: null }));
-  }, []);
+    queryClient.setQueryData(QUERY_KEYS.auth, null);
+    queryClient.removeQueries({ queryKey: QUERY_KEYS.applications });
+  }, [queryClient]);
 
   const createTeam = useCallback<StoreValue["createTeam"]>(
     (input) => {
@@ -229,8 +266,8 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
         name: input.name,
         shortName: input.shortName.toUpperCase().slice(0, 3),
         company: input.company,
-        managerUserId: state.currentUser?.id ?? "u-manager",
-        managerName: state.currentUser?.name ?? "Team Manager",
+        managerUserId: currentUser?.id ?? "u-manager",
+        managerName: currentUser?.name ?? "Team Manager",
         color: "green",
         group: input.group,
         founded: "2026",
@@ -238,11 +275,10 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
       setState((s) => ({
         ...s,
         teams: [...s.teams, team],
-        currentUser: s.currentUser ? { ...s.currentUser, teamId: team.id } : s.currentUser,
       }));
       return team;
     },
-    [state.currentUser],
+    [currentUser],
   );
 
   const updateTeam = useCallback<StoreValue["updateTeam"]>((teamId, patch) => {
@@ -324,7 +360,7 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
 
   const reviewApplication = useCallback<StoreValue["reviewApplication"]>(
     async (id, status) => {
-      const isRemote = state.remoteApplications.some((a) => a.id === id);
+      const isRemote = remoteApplications.some((a) => a.id === id);
       if (isRemote) {
         await api<{ application: Application }>(`/api/applications/${id}`, {
           method: "PATCH",
@@ -339,7 +375,7 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
         localApplications: s.localApplications.map((a) => (a.id === id ? { ...a, status } : a)),
       }));
     },
-    [state.remoteApplications, refreshOrganizerApplications],
+    [remoteApplications, refreshOrganizerApplications],
   );
 
   const updateCityStatus = useCallback<StoreValue["updateCityStatus"]>(
@@ -365,8 +401,8 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
   }, [refreshCities, refreshOrganizerApplications, refreshSession]);
 
   const applications = useMemo(
-    () => [...state.remoteApplications, ...state.localApplications],
-    [state.remoteApplications, state.localApplications],
+    () => [...remoteApplications, ...state.localApplications],
+    [remoteApplications, state.localApplications],
   );
 
   const value: StoreValue = {
@@ -374,9 +410,9 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
     players: state.players,
     fixtures: state.fixtures,
     applications,
-    cities: state.cities,
-    currentUser: state.currentUser,
-    bootstrapped: state.bootstrapped,
+    cities,
+    currentUser,
+    bootstrapped,
     login,
     register,
     logout,
@@ -400,67 +436,4 @@ export function useDevKics() {
   const ctx = useContext(StoreContext);
   if (!ctx) throw new Error("useDevKics must be used inside DevKicsProvider");
   return ctx;
-}
-
-export function computeStandings(teams: Team[], fixtures: Fixture[]): StandingRow[] {
-  const rows = new Map<string, StandingRow>();
-  for (const team of teams) {
-    rows.set(team.id, {
-      teamId: team.id,
-      played: 0,
-      won: 0,
-      drawn: 0,
-      lost: 0,
-      goalsFor: 0,
-      goalsAgainst: 0,
-      goalDifference: 0,
-      points: 0,
-      form: [],
-    });
-  }
-
-  const played = fixtures
-    .filter((f) => f.status === "completed" && f.homeScore !== null && f.awayScore !== null)
-    .sort((a, b) => a.date.localeCompare(b.date));
-
-  for (const fx of played) {
-    const home = rows.get(fx.homeTeamId);
-    const away = rows.get(fx.awayTeamId);
-    if (!home || !away) continue;
-    const hs = fx.homeScore as number;
-    const as = fx.awayScore as number;
-    home.played++;
-    away.played++;
-    home.goalsFor += hs;
-    home.goalsAgainst += as;
-    away.goalsFor += as;
-    away.goalsAgainst += hs;
-    if (hs > as) {
-      home.won++;
-      home.points += 3;
-      away.lost++;
-      home.form.push("W");
-      away.form.push("L");
-    } else if (hs < as) {
-      away.won++;
-      away.points += 3;
-      home.lost++;
-      home.form.push("L");
-      away.form.push("W");
-    } else {
-      home.drawn++;
-      away.drawn++;
-      home.points++;
-      away.points++;
-      home.form.push("D");
-      away.form.push("D");
-    }
-  }
-
-  return [...rows.values()]
-    .map((r) => ({ ...r, goalDifference: r.goalsFor - r.goalsAgainst, form: r.form.slice(-5) }))
-    .sort(
-      (a, b) =>
-        b.points - a.points || b.goalDifference - a.goalDifference || b.goalsFor - a.goalsFor,
-    );
 }

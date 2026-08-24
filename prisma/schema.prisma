@@ -64,6 +64,7 @@ model RoleAssignment {
 
   @@index([userId])
   @@index([cityId])
+  @@index([userId, role, cityId, countryCode, tournament, teamScope])
 }
 
 model Session {
@@ -77,6 +78,8 @@ model Session {
   user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([expiresAt])
+  @@index([revokedAt])
 }
 
 model City {
@@ -127,6 +130,8 @@ model OrganizerApplication {
 
   @@index([status])
   @@index([city])
+  @@index([submittedAt])
+  @@index([cityId, status])
 }
 
 model AuditLog {
@@ -146,4 +151,5 @@ model AuditLog {
 
   @@index([resourceType, resourceId])
   @@index([createdAt])
+  @@index([cityId, createdAt])
 }

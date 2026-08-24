@@ -72,7 +72,26 @@ bun run build       # production build
 bun run preview     # preview a production build
 bun run lint        # eslint
 bun run format      # prettier --write
+bun run docker:up   # build and start app + postgres via Docker Compose
+bun run docker:down # stop Docker Compose services
 ```
+
+## Docker Compose (app + PostgreSQL)
+
+This repository includes a local production-like Docker Compose stack:
+
+- `app`: TanStack Start application container
+- `postgres`: PostgreSQL 16 with persistent volume
+- Health checks and service dependency wiring (`app` waits for healthy `postgres`)
+
+Quick start:
+
+```sh
+cp .env.example .env
+bun run docker:up
+```
+
+App URL: `http://localhost:8080`
 
 ## Documentation
 

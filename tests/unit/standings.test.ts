@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { computeStandings } from "@/lib/devkics/store";
+import { computeStandings } from "@/lib/devkics/standings";
 import type { Fixture, Team } from "@/lib/devkics/types";
 
 describe("computeStandings", () => {

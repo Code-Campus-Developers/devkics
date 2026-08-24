@@ -16,7 +16,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { computeStandings, useDevKics } from "@/lib/devkics/store";
+import { useDevKics } from "@/lib/devkics/store";
+import { computeStandings } from "@/lib/devkics/standings";
 import type { Player } from "@/lib/devkics/types";
 
 export function ManagerDashboard() {

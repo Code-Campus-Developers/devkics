@@ -7,7 +7,8 @@ import { SectionHeading, TeamCrest } from "@/components/devkics/brand";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cities, tournaments } from "@/lib/devkics/seed";
-import { computeStandings, useDevKics } from "@/lib/devkics/store";
+import { useDevKics } from "@/lib/devkics/store";
+import { computeStandings } from "@/lib/devkics/standings";
 
 export const Route = createFileRoute("/")({
   head: () => ({

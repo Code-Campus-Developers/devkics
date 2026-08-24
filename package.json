@@ -21,6 +21,9 @@
     "prisma:migrate": "prisma migrate dev --name phase1_foundation",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:seed": "prisma db seed",
+    "docker:up": "docker compose up -d --build",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f app postgres",
     "db:up": "docker run --name devkics-postgres -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=devkics -p 5432:5432 -d postgres:16-alpine || docker start devkics-postgres",
     "db:down": "docker stop devkics-postgres",
     "db:reset": "prisma migrate reset --force --skip-generate --skip-seed"

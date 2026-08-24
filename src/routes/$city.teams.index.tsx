@@ -1,7 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 
 import { PageHeader, TeamCrest } from "@/components/devkics/brand";
-import { computeStandings, useDevKics } from "@/lib/devkics/store";
+import { useDevKics } from "@/lib/devkics/store";
+import { computeStandings } from "@/lib/devkics/standings";
 
 export const Route = createFileRoute("/$city/teams/")({
   head: () => ({

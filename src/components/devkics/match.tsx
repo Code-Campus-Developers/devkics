@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 
 import { FormPill, TeamCrest } from "./brand";
-import { computeStandings } from "@/lib/devkics/store";
+import { computeStandings } from "@/lib/devkics/standings";
 import type { Fixture, Team } from "@/lib/devkics/types";
 import { cn } from "@/lib/utils";
 

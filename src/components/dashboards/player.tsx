@@ -3,7 +3,8 @@ import { Link } from "@tanstack/react-router";
 import { FormPill, SectionHeading, StatCard, TeamCrest } from "@/components/devkics/brand";
 import { MatchRow } from "@/components/devkics/match";
 import { Button } from "@/components/ui/button";
-import { computeStandings, useDevKics } from "@/lib/devkics/store";
+import { useDevKics } from "@/lib/devkics/store";
+import { computeStandings } from "@/lib/devkics/standings";
 
 export function PlayerDashboard() {
   const { currentUser, teams, players, fixtures } = useDevKics();
