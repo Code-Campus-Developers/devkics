@@ -280,7 +280,7 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
     queryKey: [...QUERY_KEYS.organizations, citySlug],
     queryFn: async () => {
       const payload = await api<{ organizations: Organization[] }>(
-        `/api/organizations?citySlug=${encodeURIComponent(citySlug)}&page=1&pageSize=100`,
+        `/api/organizations?citySlug=${encodeURIComponent(citySlug)}&page=1&pageSize=50`,
         { method: "GET" },
       );
       return payload.organizations;
@@ -296,7 +296,7 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
     queryFn: async () => {
       if (!activeTournamentId) return [] as Team[];
       const payload = await api<{ teams: Team[] }>(
-        `/api/teams?tournamentId=${encodeURIComponent(activeTournamentId)}&page=1&pageSize=100`,
+        `/api/teams?tournamentId=${encodeURIComponent(activeTournamentId)}&page=1&pageSize=50`,
         { method: "GET" },
       );
       return payload.teams.map(normalizeTeam);

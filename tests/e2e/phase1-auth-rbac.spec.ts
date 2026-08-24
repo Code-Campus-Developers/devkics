@@ -5,6 +5,7 @@ test.describe("Phase 1 foundation", () => {
     const email = `phase1-user-${Date.now()}@devkics.test`;
 
     await page.goto("/auth");
+    await page.waitForLoadState("networkidle");
 
     await page.getByRole("tab", { name: "Register" }).click();
     await page.getByPlaceholder("Ada Lovelace").fill("Phase One User");

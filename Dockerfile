@@ -10,7 +10,8 @@ RUN DATABASE_URL=postgresql://devkics:devkics@localhost:5432/devkics?schema=publ
 
 FROM deps AS build
 COPY . .
-RUN bun run build
+# Cloudflare's default nitro preset emits a WASM import shape the Bun runtime can't instantiate.
+RUN NITRO_PRESET=bun bun run build
 
 FROM deps AS development
 COPY . .
