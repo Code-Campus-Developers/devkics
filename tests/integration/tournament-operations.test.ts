@@ -37,6 +37,15 @@ describe("Phase 2 tournament operations", () => {
   });
 
   beforeEach(async () => {
+    await prisma.notification.deleteMany();
+    await prisma.mediaFile.deleteMany();
+    await prisma.gallery.deleteMany();
+    await prisma.announcement.deleteMany();
+    await prisma.sponsorshipEnquiry.deleteMany();
+    await prisma.sponsorship.deleteMany();
+    await prisma.sponsor.deleteMany();
+    await prisma.volunteer.deleteMany();
+    await prisma.volunteerApplication.deleteMany();
     await prisma.awardAssignment.deleteMany();
     await prisma.award.deleteMany();
     await prisma.knockoutLink.deleteMany();
@@ -237,7 +246,18 @@ describe("Phase 2 tournament operations", () => {
       },
       body: JSON.stringify({ status: "approved" }),
     });
-    expect((await handleApiRequest(approveTeamReq))?.status).toBe(200);
+    const approveTeamRes = await handleApiRequest(approveTeamReq);
+    expect(approveTeamRes?.status).toBe(200);
+    await expect(
+      prisma.notification.findFirst({
+        where: {
+          type: "team.reviewed",
+          resourceId: teamPayload.team.id,
+          recipientEmail: managerEmail,
+          channel: "EMAIL",
+        },
+      }),
+    ).resolves.not.toBeNull();
 
     const createPlayerReq = new Request("http://localhost:8080/api/players", {
       method: "POST",
@@ -271,6 +291,11 @@ describe("Phase 2 tournament operations", () => {
       },
     );
     expect((await handleApiRequest(approvePlayerReq))?.status).toBe(200);
+    await expect(
+      prisma.notification.findFirst({
+        where: { type: "player.reviewed", resourceId: playerPayload.player.id, channel: "IN_APP" },
+      }),
+    ).resolves.not.toBeNull();
 
     const awayTeam = await prisma.team.create({
       data: {
@@ -365,6 +390,90 @@ describe("Phase 2 tournament operations", () => {
     expect(standingsPayload.standings[0]?.teamId).toBe(teamPayload.team.id);
     expect(standingsPayload.standings[0]?.points).toBe(3);
   });
+
+  it("notifies the city audience on registration status changes and fixture publication", async () => {
+    const city = await prisma.city.findUniqueOrThrow({ where: { slug: "abuja" } });
+    const admin = await prisma.user.create({
+      data: {
+        name: "Ops Admin",
+        email: "phase2-ops-admin@devkics.test",
+        passwordHash: await hashPassword("devkics123"),
+        citySlug: "abuja",
+      },
+    });
+    await prisma.roleAssignment.create({
+      data: { userId: admin.id, role: Role.ADMIN, cityId: city.id, countryCode: "NG" },
+    });
+    const login = await handleApiRequest(
+      new Request("http://localhost:8080/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: admin.email, password: "devkics123" }),
+      }),
+    );
+    const cookie = toCookieHeader(collectSetCookies(login as Response));
+
+    const createTournamentRes = await handleApiRequest(
+      new Request("http://localhost:8080/api/tournaments", {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie },
+        body: JSON.stringify({
+          citySlug: "abuja",
+          name: "Ops Cup",
+          slug: "ops-cup-2026",
+          season: "Season 1",
+          format: "League",
+          venue: "Jabi Turf",
+          summary: "Notification lifecycle coverage",
+          startDate: "2026-09-01",
+          endDate: "2026-10-01",
+        }),
+      }),
+    );
+    expect(createTournamentRes?.status).toBe(201);
+    const { tournament } = (await createTournamentRes?.json()) as { tournament: { id: string } };
+
+    const openRegistration = await handleApiRequest(
+      new Request(`http://localhost:8080/api/tournaments/${tournament.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json", cookie },
+        body: JSON.stringify({ status: "registration-open" }),
+      }),
+    );
+    expect(openRegistration?.status).toBe(200);
+    await expect(
+      prisma.notification.findFirst({
+        where: {
+          type: "registration.status",
+          resourceId: tournament.id,
+          recipientUserId: admin.id,
+        },
+      }),
+    ).resolves.not.toBeNull();
+
+    const closeRegistration = await handleApiRequest(
+      new Request(`http://localhost:8080/api/tournaments/${tournament.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json", cookie },
+        body: JSON.stringify({ status: "registration-closed" }),
+      }),
+    );
+    expect(closeRegistration?.status).toBe(200);
+
+    const publishFixtures = await handleApiRequest(
+      new Request(`http://localhost:8080/api/tournaments/${tournament.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json", cookie },
+        body: JSON.stringify({ status: "fixtures-published" }),
+      }),
+    );
+    expect(publishFixtures?.status).toBe(200);
+    await expect(
+      prisma.notification.findFirst({
+        where: { type: "fixtures.published", resourceId: tournament.id, recipientUserId: admin.id },
+      }),
+    ).resolves.not.toBeNull();
+  }, 15_000);
 
   it("blocks cross-city tournament operations for non-scoped users", async () => {
     const city = await prisma.city.upsert({

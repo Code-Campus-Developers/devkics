@@ -35,6 +35,15 @@ describe("Phase 1 API integration", () => {
   });
 
   beforeEach(async () => {
+    await prisma.notification.deleteMany();
+    await prisma.mediaFile.deleteMany();
+    await prisma.gallery.deleteMany();
+    await prisma.announcement.deleteMany();
+    await prisma.sponsorshipEnquiry.deleteMany();
+    await prisma.sponsorship.deleteMany();
+    await prisma.sponsor.deleteMany();
+    await prisma.volunteer.deleteMany();
+    await prisma.volunteerApplication.deleteMany();
     await prisma.awardAssignment.deleteMany();
     await prisma.award.deleteMany();
     await prisma.knockoutLink.deleteMany();

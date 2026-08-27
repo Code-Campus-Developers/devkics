@@ -1,5 +1,5 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { Menu } from "lucide-react";
+import { Bell, CheckCheck, Menu } from "lucide-react";
 import { useState } from "react";
 
 import { Logo } from "./brand";
@@ -13,6 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useDevKics } from "@/lib/devkics/store";
 import { cn } from "@/lib/utils";
 
@@ -25,7 +26,14 @@ const nav = [
 ];
 
 export function SiteHeader() {
-  const { currentUser, logout } = useDevKics();
+  const {
+    currentUser,
+    logout,
+    notifications,
+    unreadNotificationCount,
+    markNotificationRead,
+    markAllNotificationsRead,
+  } = useDevKics();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -59,23 +67,80 @@ export function SiteHeader() {
 
         <div className="flex items-center gap-2">
           {currentUser ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="rounded-full">
-                  {currentUser.name.split(" ")[0]}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-52">
-                <DropdownMenuLabel className="capitalize">
-                  {currentUser.role} account
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={() => navigate({ to: "/dashboard" })}>
-                  Dashboard
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={handleLogout}>Sign out</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="relative"
+                    aria-label="Notifications"
+                  >
+                    <Bell className="size-4" />
+                    {unreadNotificationCount > 0 && (
+                      <span className="absolute right-1 top-1 grid size-4 place-items-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
+                        {unreadNotificationCount > 9 ? "9+" : unreadNotificationCount}
+                      </span>
+                    )}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-80 p-0">
+                  <div className="flex items-center justify-between border-b border-border px-4 py-3">
+                    <p className="font-semibold">Notifications</p>
+                    {unreadNotificationCount > 0 && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-auto px-1 text-xs"
+                        onClick={() => void markAllNotificationsRead()}
+                      >
+                        <CheckCheck className="size-3" />
+                        Mark all read
+                      </Button>
+                    )}
+                  </div>
+                  <div className="max-h-96 overflow-y-auto">
+                    {notifications.map((notification) => (
+                      <button
+                        key={notification.id}
+                        className={cn(
+                          "w-full border-b border-border px-4 py-3 text-left text-sm last:border-0 hover:bg-accent",
+                          !notification.readAt && "bg-primary/[0.04]",
+                        )}
+                        onClick={() => {
+                          if (!notification.readAt) void markNotificationRead(notification.id);
+                        }}
+                      >
+                        <p className="font-medium">{notification.title}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">{notification.body}</p>
+                      </button>
+                    ))}
+                    {notifications.length === 0 && (
+                      <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+                        You&apos;re all caught up.
+                      </p>
+                    )}
+                  </div>
+                </PopoverContent>
+              </Popover>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="rounded-full">
+                    {currentUser.name.split(" ")[0]}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-52">
+                  <DropdownMenuLabel className="capitalize">
+                    {currentUser.role} account
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => navigate({ to: "/dashboard" })}>
+                    Dashboard
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={handleLogout}>Sign out</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </>
           ) : (
             <Button asChild size="sm" className="hidden rounded-full sm:inline-flex">
               <a href="/auth">Sign in</a>

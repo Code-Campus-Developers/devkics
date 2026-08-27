@@ -17,6 +17,93 @@ export interface City {
   accentImage: string;
 }
 
+export interface VolunteerApplication {
+  id: string;
+  cityId: string;
+  name: string;
+  email: string;
+  role: string;
+  availability: string;
+  status: "submitted" | "under-review" | "approved" | "rejected" | "withdrawn";
+  reviewNotes?: string | null;
+  submittedAt: string;
+  reviewedAt?: string | null;
+}
+
+export interface VolunteerRequirement {
+  id: string;
+  tournamentId: string;
+  role: string;
+  requiredCount: number;
+  approvedCount: number;
+}
+
+export interface VolunteerListItem {
+  id: string;
+  role: string;
+  attendanceCount: number;
+  applicant: { name: string; email: string };
+}
+
+export interface SponsorshipEnquiry {
+  id: string;
+  name: string;
+  email: string;
+  organization?: string | null;
+  message: string;
+  status: "submitted" | "in-review" | "responded" | "closed";
+  createdAt: string;
+  city: { name: string; slug: string };
+}
+
+export interface Announcement {
+  id: string;
+  cityId: string;
+  tournamentId?: string | null;
+  headline: string;
+  excerpt: string;
+  body: string;
+  category: string;
+  featuredImageUrl?: string | null;
+  status: "draft" | "published" | "archived";
+  publishedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  authorName?: string | null;
+}
+
+export interface GalleryMedia {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  storagePath: string;
+  publicUrl: string;
+  caption?: string | null;
+  credit?: string | null;
+  isCover: boolean;
+  createdAt: string;
+}
+
+export interface Gallery {
+  id: string;
+  cityId: string;
+  title: string;
+  description?: string | null;
+  createdAt: string;
+  media: GalleryMedia[];
+}
+
+export interface AppNotification {
+  id: string;
+  type: string;
+  title: string;
+  body: string;
+  resourceType?: string | null;
+  resourceId?: string | null;
+  readAt?: string | null;
+  createdAt: string;
+}
+
 export interface Tournament {
   id: string;
   slug?: string;

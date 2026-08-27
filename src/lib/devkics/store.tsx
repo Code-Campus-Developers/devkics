@@ -7,8 +7,11 @@ import type {
   Application,
   ApplicationKind,
   Award,
+  Announcement,
+  AppNotification,
   City,
   Fixture,
+  Gallery,
   KnockoutRound,
   MatchEvent,
   Organization,
@@ -17,6 +20,8 @@ import type {
   Team,
   Tournament,
   User,
+  VolunteerApplication,
+  SponsorshipEnquiry,
 } from "./types";
 
 type SignUpInput = {
@@ -47,6 +52,12 @@ interface StoreValue {
   standings: StandingRow[];
   knockoutRounds: KnockoutRound[];
   awards: Award[];
+  announcements: Announcement[];
+  galleries: Gallery[];
+  volunteerApplications: VolunteerApplication[];
+  sponsorshipEnquiries: SponsorshipEnquiry[];
+  notifications: AppNotification[];
+  unreadNotificationCount: number;
   cities: City[];
   currentUser: User | null;
   bootstrapped: boolean;
@@ -98,6 +109,48 @@ interface StoreValue {
     detail: string;
   }) => Promise<void>;
   reviewApplication: (id: string, status: "approved" | "rejected") => Promise<void>;
+  submitVolunteerApplication: (input: {
+    citySlug: string;
+    name: string;
+    email: string;
+    role: string;
+    availability: string;
+  }) => Promise<void>;
+  reviewVolunteerApplication: (
+    id: string,
+    status: "under-review" | "approved" | "rejected",
+    options?: { reviewNotes?: string; tournamentId?: string },
+  ) => Promise<void>;
+  createAnnouncement: (input: {
+    headline: string;
+    excerpt: string;
+    body: string;
+    category: string;
+    featuredImageUrl?: string;
+    status: "draft" | "published";
+  }) => Promise<void>;
+  updateAnnouncement: (
+    id: string,
+    input: Partial<{
+      headline: string;
+      excerpt: string;
+      body: string;
+      category: string;
+      featuredImageUrl: string;
+      status: "draft" | "published";
+    }>,
+  ) => Promise<void>;
+  createGallery: (input: { title: string; description?: string }) => Promise<void>;
+  uploadGalleryMedia: (input: {
+    galleryId: string;
+    file: File;
+    caption?: string;
+    credit?: string;
+    isCover?: boolean;
+  }) => Promise<void>;
+  deleteGalleryMedia: (galleryId: string, mediaId: string) => Promise<void>;
+  markNotificationRead: (id: string) => Promise<void>;
+  markAllNotificationsRead: () => Promise<void>;
   updateCityStatus: (slug: string, status: City["status"]) => Promise<void>;
   resetDemo: () => Promise<void>;
 }
@@ -116,13 +169,19 @@ const QUERY_KEYS = {
   standings: ["standings"] as const,
   knockout: ["knockout"] as const,
   awards: ["awards"] as const,
+  announcements: ["announcements"] as const,
+  galleries: ["galleries"] as const,
+  volunteerApplications: ["volunteer-applications"] as const,
+  sponsorshipEnquiries: ["sponsorship-enquiries"] as const,
+  notifications: ["notifications"] as const,
 };
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const isFormData = init?.body instanceof FormData;
   const res = await fetch(path, {
     credentials: "include",
     headers: {
-      "content-type": "application/json",
+      ...(isFormData ? {} : { "content-type": "application/json" }),
       ...(init?.headers ?? {}),
     },
     ...init,
@@ -229,6 +288,27 @@ function normalizePlayer(raw: Partial<Player>): Player {
   return player;
 }
 
+function normalizeVolunteerApplication(raw: VolunteerApplication): VolunteerApplication {
+  return {
+    ...raw,
+    status: raw.status.toLowerCase() as VolunteerApplication["status"],
+  };
+}
+
+function normalizeSponsorshipEnquiry(raw: SponsorshipEnquiry): SponsorshipEnquiry {
+  return {
+    ...raw,
+    status: raw.status.toLowerCase().replaceAll("_", "-") as SponsorshipEnquiry["status"],
+  };
+}
+
+function normalizeAnnouncement(raw: Announcement): Announcement {
+  return {
+    ...raw,
+    status: raw.status.toLowerCase() as Announcement["status"],
+  };
+}
+
 export function DevKicsProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
 
@@ -287,6 +367,79 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
     },
     staleTime: 30_000,
     refetchOnWindowFocus: false,
+    retry: false,
+    enabled: !!currentUser,
+  });
+
+  const volunteerApplicationsQuery = useQuery({
+    queryKey: [...QUERY_KEYS.volunteerApplications, citySlug],
+    queryFn: async () => {
+      const payload = await api<{ applications: VolunteerApplication[] }>(
+        `/api/volunteer-applications?citySlug=${encodeURIComponent(citySlug)}&page=1&pageSize=50`,
+        { method: "GET" },
+      );
+      return payload.applications.map(normalizeVolunteerApplication);
+    },
+    staleTime: 20_000,
+    refetchOnWindowFocus: false,
+    retry: false,
+    enabled: !!currentUser,
+  });
+
+  const sponsorshipEnquiriesQuery = useQuery({
+    queryKey: QUERY_KEYS.sponsorshipEnquiries,
+    queryFn: async () => {
+      const payload = await api<{ enquiries: SponsorshipEnquiry[] }>(
+        "/api/sponsorship-enquiries?page=1&pageSize=50",
+        { method: "GET" },
+      );
+      return payload.enquiries.map(normalizeSponsorshipEnquiry);
+    },
+    staleTime: 20_000,
+    refetchOnWindowFocus: false,
+    retry: false,
+    enabled: currentUser?.role === "admin",
+  });
+
+  const announcementsQuery = useQuery({
+    queryKey: [...QUERY_KEYS.announcements, citySlug],
+    queryFn: async () => {
+      const payload = await api<{ announcements: Announcement[] }>(
+        `/api/announcements?citySlug=${encodeURIComponent(citySlug)}`,
+        { method: "GET" },
+      );
+      return payload.announcements.map(normalizeAnnouncement);
+    },
+    staleTime: 20_000,
+    refetchOnWindowFocus: false,
+    retry: false,
+    enabled: !!currentUser,
+  });
+
+  const galleriesQuery = useQuery({
+    queryKey: [...QUERY_KEYS.galleries, citySlug],
+    queryFn: async () => {
+      const payload = await api<{ galleries: Gallery[] }>(
+        `/api/galleries?citySlug=${encodeURIComponent(citySlug)}`,
+        { method: "GET" },
+      );
+      return payload.galleries;
+    },
+    staleTime: 20_000,
+    refetchOnWindowFocus: false,
+    retry: false,
+    enabled: !!currentUser,
+  });
+
+  const notificationsQuery = useQuery({
+    queryKey: QUERY_KEYS.notifications,
+    queryFn: async () => {
+      return api<{ notifications: AppNotification[]; unreadCount: number }>("/api/notifications", {
+        method: "GET",
+      });
+    },
+    staleTime: 15_000,
+    refetchOnWindowFocus: true,
     retry: false,
     enabled: !!currentUser,
   });
@@ -424,6 +577,8 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.standings }),
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.knockout }),
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.awards }),
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.announcements }),
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.galleries }),
     ]);
   }, [queryClient]);
 
@@ -438,6 +593,8 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.cities }),
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.applications }),
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.sponsorshipEnquiries }),
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notifications }),
         refreshDomain(),
       ]);
       return user;
@@ -456,6 +613,8 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.cities }),
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.applications }),
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.sponsorshipEnquiries }),
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notifications }),
         refreshDomain(),
       ]);
       return user;
@@ -467,6 +626,8 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
     await api<{ ok: boolean }>("/api/auth/logout", { method: "POST" });
     queryClient.setQueryData(QUERY_KEYS.auth, null);
     queryClient.removeQueries({ queryKey: QUERY_KEYS.applications });
+    queryClient.removeQueries({ queryKey: QUERY_KEYS.sponsorshipEnquiries });
+    queryClient.removeQueries({ queryKey: QUERY_KEYS.notifications });
     await refreshDomain();
   }, [queryClient, refreshDomain]);
 
@@ -651,6 +812,105 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
     [queryClient],
   );
 
+  const submitVolunteerApplication = useCallback<StoreValue["submitVolunteerApplication"]>(
+    async (input) => {
+      await api<{ application: VolunteerApplication }>("/api/volunteer-applications", {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    [],
+  );
+
+  const reviewVolunteerApplication = useCallback<StoreValue["reviewVolunteerApplication"]>(
+    async (id, status, options) => {
+      await api<{ application: VolunteerApplication }>(
+        `/api/volunteer-applications/${encodeURIComponent(id)}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ status, ...options }),
+        },
+      );
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.volunteerApplications });
+    },
+    [queryClient],
+  );
+
+  const createAnnouncement = useCallback<StoreValue["createAnnouncement"]>(
+    async (input) => {
+      await api<{ announcement: Announcement }>("/api/announcements", {
+        method: "POST",
+        body: JSON.stringify({ citySlug, ...input }),
+      });
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.announcements });
+    },
+    [citySlug, queryClient],
+  );
+
+  const updateAnnouncement = useCallback<StoreValue["updateAnnouncement"]>(
+    async (id, input) => {
+      await api<{ announcement: Announcement }>(`/api/announcements/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        body: JSON.stringify(input),
+      });
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.announcements });
+    },
+    [queryClient],
+  );
+
+  const createGallery = useCallback<StoreValue["createGallery"]>(
+    async (input) => {
+      await api<{ gallery: Gallery }>("/api/galleries", {
+        method: "POST",
+        body: JSON.stringify({ citySlug, ...input }),
+      });
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.galleries });
+    },
+    [citySlug, queryClient],
+  );
+
+  const uploadGalleryMedia = useCallback<StoreValue["uploadGalleryMedia"]>(
+    async ({ galleryId, file, caption, credit, isCover }) => {
+      const formData = new FormData();
+      formData.set("file", file);
+      if (caption) formData.set("caption", caption);
+      if (credit) formData.set("credit", credit);
+      if (isCover) formData.set("isCover", "true");
+      await api(`/api/galleries/${encodeURIComponent(galleryId)}/media`, {
+        method: "POST",
+        body: formData,
+      });
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.galleries });
+    },
+    [queryClient],
+  );
+
+  const deleteGalleryMedia = useCallback<StoreValue["deleteGalleryMedia"]>(
+    async (galleryId, mediaId) => {
+      await api(
+        `/api/galleries/${encodeURIComponent(galleryId)}/media/${encodeURIComponent(mediaId)}`,
+        {
+          method: "DELETE",
+        },
+      );
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.galleries });
+    },
+    [queryClient],
+  );
+
+  const markNotificationRead = useCallback<StoreValue["markNotificationRead"]>(
+    async (id) => {
+      await api(`/api/notifications/${encodeURIComponent(id)}`, { method: "PATCH" });
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notifications });
+    },
+    [queryClient],
+  );
+
+  const markAllNotificationsRead = useCallback<StoreValue["markAllNotificationsRead"]>(async () => {
+    await api("/api/notifications/read", { method: "PATCH" });
+    await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notifications });
+  }, [queryClient]);
+
   const updateCityStatus = useCallback<StoreValue["updateCityStatus"]>(
     async (slug, status) => {
       await api<{ city: City }>(`/api/cities/${encodeURIComponent(slug)}`, {
@@ -682,6 +942,12 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
     standings: standingsQuery.data ?? [],
     knockoutRounds: knockoutQuery.data ?? [],
     awards: awardsQuery.data ?? [],
+    announcements: announcementsQuery.data ?? [],
+    galleries: galleriesQuery.data ?? [],
+    volunteerApplications: volunteerApplicationsQuery.data ?? [],
+    sponsorshipEnquiries: sponsorshipEnquiriesQuery.data ?? [],
+    notifications: notificationsQuery.data?.notifications ?? [],
+    unreadNotificationCount: notificationsQuery.data?.unreadCount ?? 0,
     cities: citiesQuery.data ?? seed.cities,
     currentUser,
     bootstrapped,
@@ -704,6 +970,15 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
     updateResult,
     submitApplication,
     reviewApplication,
+    submitVolunteerApplication,
+    reviewVolunteerApplication,
+    createAnnouncement,
+    updateAnnouncement,
+    createGallery,
+    uploadGalleryMedia,
+    deleteGalleryMedia,
+    markNotificationRead,
+    markAllNotificationsRead,
     updateCityStatus,
     resetDemo,
   };

@@ -4,6 +4,9 @@ import { toast } from "sonner";
 import { SectionHeading, StatCard, TeamCrest } from "@/components/devkics/brand";
 import { StandingsTable } from "@/components/devkics/match";
 import { ApplicationQueue } from "./applications";
+import { AnnouncementManager } from "./announcements";
+import { GalleryManager } from "./gallery";
+import { VolunteerOperationsManager } from "./volunteer-operations";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -28,9 +31,11 @@ export function OrganizerDashboard() {
     organizations,
     tournaments,
     standings,
+    volunteerApplications,
     updateTeam,
     reviewOrganization,
     reviewPlayer,
+    reviewVolunteerApplication,
     loadingTournamentOps,
   } = useDevKics();
   const tournament = tournaments[0];
@@ -46,6 +51,9 @@ export function OrganizerDashboard() {
   );
   const pendingPlayers = players.filter(
     (player) => player.status === "pending-approval" || player.status === "registration-incomplete",
+  );
+  const pendingVolunteerApplications = volunteerApplications.filter(
+    (application) => application.status === "submitted" || application.status === "under-review",
   );
 
   if (loadingTournamentOps) {
@@ -83,6 +91,15 @@ export function OrganizerDashboard() {
           <TabsTrigger value="applications" className="rounded-full">
             Applications
           </TabsTrigger>
+          <TabsTrigger value="volunteer-ops" className="rounded-full">
+            Volunteer ops
+          </TabsTrigger>
+          <TabsTrigger value="news" className="rounded-full">
+            Newsroom
+          </TabsTrigger>
+          <TabsTrigger value="gallery" className="rounded-full">
+            Gallery
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="matches" className="mt-8 space-y-10">
@@ -119,6 +136,70 @@ export function OrganizerDashboard() {
         </TabsContent>
 
         <TabsContent value="applications" className="mt-8 space-y-10">
+          <section className="space-y-4">
+            <SectionHeading
+              title="Volunteer applications"
+              description="Review matchday volunteers and assign approved applicants to this season."
+            />
+            <ul className="space-y-3">
+              {pendingVolunteerApplications.map((application) => (
+                <li key={application.id} className="rounded-2xl border border-border bg-card p-4">
+                  <p className="font-medium">{application.name}</p>
+                  <p className="text-xs text-muted-foreground">{application.email}</p>
+                  <p className="mt-2 text-sm text-muted-foreground">{application.availability}</p>
+                  <div className="mt-3 flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={async () => {
+                        try {
+                          if (application.status === "submitted") {
+                            await reviewVolunteerApplication(application.id, "under-review");
+                          }
+                          await reviewVolunteerApplication(
+                            application.id,
+                            "approved",
+                            tournament ? { tournamentId: tournament.id } : undefined,
+                          );
+                          toast.success("Volunteer approved and assigned");
+                        } catch (error) {
+                          toast.error(
+                            error instanceof Error ? error.message : "Unable to approve volunteer",
+                          );
+                        }
+                      }}
+                    >
+                      Approve
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={async () => {
+                        try {
+                          if (application.status === "submitted") {
+                            await reviewVolunteerApplication(application.id, "under-review");
+                          }
+                          await reviewVolunteerApplication(application.id, "rejected");
+                          toast.success("Volunteer application rejected");
+                        } catch (error) {
+                          toast.error(
+                            error instanceof Error ? error.message : "Unable to reject volunteer",
+                          );
+                        }
+                      }}
+                    >
+                      Reject
+                    </Button>
+                  </div>
+                </li>
+              ))}
+              {pendingVolunteerApplications.length === 0 && (
+                <p className="rounded-2xl border border-dashed border-border p-6 text-sm text-muted-foreground">
+                  No volunteer applications awaiting review.
+                </p>
+              )}
+            </ul>
+          </section>
+
           <section className="space-y-4">
             <SectionHeading
               title="Organization approvals"
@@ -289,6 +370,18 @@ export function OrganizerDashboard() {
 
           <ApplicationQueue kinds={["team", "player"]} title="Team & player applications" />
           <ApplicationQueue kinds={["volunteer"]} title="Volunteer applications" />
+        </TabsContent>
+
+        <TabsContent value="volunteer-ops" className="mt-8">
+          <VolunteerOperationsManager />
+        </TabsContent>
+
+        <TabsContent value="news" className="mt-8">
+          <AnnouncementManager />
+        </TabsContent>
+
+        <TabsContent value="gallery" className="mt-8">
+          <GalleryManager />
         </TabsContent>
       </Tabs>
     </div>

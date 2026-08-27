@@ -1,6 +1,7 @@
 import {
   AwardRecipientType,
   CityStatus,
+  ContentPublishStatus,
   MatchEventType,
   MatchStage,
   MatchStatus,
@@ -8,8 +9,10 @@ import {
   OrganizerApplicationStatus,
   PlayerStatus,
   Role,
+  SponsorshipTier,
   TeamStatus,
   TournamentStatus,
+  VolunteerApplicationStatus,
   type RoleAssignment,
   type User,
 } from "@prisma/client";
@@ -38,6 +41,14 @@ import {
   generateRoundRobinFixtures,
   resolveFixtureWinner,
 } from "./tournament-ops";
+import {
+  assertAnnouncementTransition,
+  assertVolunteerApplicationTransition,
+  deliverQueuedEmailNotifications,
+  dispatchNotification,
+} from "./community-content";
+import { getEmailTransport } from "./email-transport";
+import { deleteGalleryMedia, publicGalleryUrl, uploadGalleryMedia } from "./supabase-storage";
 
 type Json = Record<string, unknown>;
 
@@ -559,6 +570,81 @@ const awardCreateSchema = z.object({
   note: z.string().max(500).optional(),
 });
 
+const volunteerApplicationSchema = z.object({
+  citySlug: z.string().min(2),
+  name: z.string().min(2),
+  email: z.string().email(),
+  role: z.string().min(2).max(120),
+  availability: z.string().min(10).max(2_000),
+});
+
+const volunteerReviewSchema = z.object({
+  status: z.enum(["under-review", "approved", "rejected"]),
+  reviewNotes: z.string().max(2_000).optional(),
+  tournamentId: z.string().optional(),
+});
+
+const sponsorshipEnquirySchema = z.object({
+  citySlug: z.string().min(2),
+  tournamentId: z.string().optional(),
+  name: z.string().min(2),
+  email: z.string().email(),
+  organization: z.string().max(200).optional(),
+  message: z.string().min(10).max(2_000),
+});
+
+const sponsorSchema = z.object({
+  citySlug: z.string().min(2),
+  tournamentId: z.string().optional(),
+  name: z.string().min(2),
+  slug: z.string().min(2).max(100),
+  description: z.string().min(10).max(2_000),
+  tier: z.enum(["headline", "official", "community"]),
+  website: z.string().url().optional(),
+  logoUrl: z.string().url().optional(),
+  startsAt: z.string().date().optional(),
+  endsAt: z.string().date().optional(),
+  isPublished: z.boolean().optional(),
+  sortOrder: z.number().int().min(0).max(10_000).optional(),
+});
+
+const sponsorshipUpdateSchema = sponsorSchema
+  .omit({ citySlug: true, slug: true, name: true, description: true })
+  .partial();
+
+const volunteerRequirementSchema = z.object({
+  tournamentId: z.string().min(1),
+  role: z.string().min(2).max(120),
+  requiredCount: z.number().int().min(0).max(500),
+});
+
+const volunteerCheckInSchema = z.object({ note: z.string().max(500).optional() });
+
+const announcementSchema = z.object({
+  citySlug: z.string().min(2),
+  tournamentId: z.string().optional(),
+  headline: z.string().min(5).max(200),
+  excerpt: z.string().min(10).max(500),
+  body: z.string().min(20).max(10_000),
+  category: z.string().min(2).max(80),
+  featuredImageUrl: z.string().url().optional(),
+  status: z.enum(["draft", "published"]).default("draft"),
+});
+
+const announcementUpdateSchema = announcementSchema.omit({ citySlug: true }).partial();
+
+const gallerySchema = z.object({
+  citySlug: z.string().min(2),
+  title: z.string().min(2).max(200),
+  description: z.string().max(2_000).optional(),
+});
+
+const mediaMetadataSchema = z.object({
+  caption: z.string().max(500).optional(),
+  credit: z.string().max(200).optional(),
+  isCover: z.boolean().optional(),
+});
+
 const AUTH_RATE_LIMIT = { limit: 12, windowMs: 60_000 };
 const APPLICATION_SUBMIT_RATE_LIMIT = { limit: 10, windowMs: 60_000 };
 const APPLICATION_REVIEW_RATE_LIMIT = { limit: 60, windowMs: 60_000 };
@@ -597,6 +683,42 @@ function toMatchEventType(value: string): MatchEventType {
 async function canAccessCityOperations(user: User, assignments: RoleAssignment[], cityId: string) {
   if (hasScopedRole(assignments, Role.ADMIN)) return true;
   return hasScopedRole(assignments, Role.ORGANIZER, { cityId });
+}
+
+async function notifyCityAudience(input: {
+  cityId: string;
+  createdByUserId: string;
+  type: string;
+  title: string;
+  body: string;
+  resourceType: string;
+  resourceId: string;
+}) {
+  const assignments = await prisma.roleAssignment.findMany({
+    where: { OR: [{ cityId: input.cityId }, { role: Role.ADMIN }] },
+    distinct: ["userId"],
+    select: { userId: true, user: { select: { email: true } } },
+  });
+  const transport = getEmailTransport();
+  await Promise.all(
+    assignments.map((assignment) =>
+      dispatchNotification(
+        prisma,
+        {
+          recipientUserId: assignment.userId,
+          recipientEmail: assignment.user.email,
+          createdByUserId: input.createdByUserId,
+          type: input.type,
+          title: input.title,
+          body: input.body,
+          resourceType: input.resourceType,
+          resourceId: input.resourceId,
+          email: true,
+        },
+        transport,
+      ),
+    ),
+  );
 }
 
 async function resolveTournamentScope(tournamentId: string) {
@@ -1446,6 +1568,35 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       },
     });
 
+    if (nextStatus === TournamentStatus.FIXTURES_PUBLISHED) {
+      await notifyCityAudience({
+        cityId: updated.cityId,
+        createdByUserId: auth.user.id,
+        type: "fixtures.published",
+        title: "Fixtures published",
+        body: `${updated.name} fixtures are now available.`,
+        resourceType: "tournament",
+        resourceId: updated.id,
+      });
+    }
+    if (
+      nextStatus === TournamentStatus.REGISTRATION_OPEN ||
+      nextStatus === TournamentStatus.REGISTRATION_CLOSED
+    ) {
+      await notifyCityAudience({
+        cityId: updated.cityId,
+        createdByUserId: auth.user.id,
+        type: "registration.status",
+        title:
+          nextStatus === TournamentStatus.REGISTRATION_OPEN
+            ? "Registration is open"
+            : "Registration is closed",
+        body: `${updated.name} registration status has changed.`,
+        resourceType: "tournament",
+        resourceId: updated.id,
+      });
+    }
+
     return jsonResponse(200, { ok: true, tournament: mapTournamentPayload(updated) }, authHeaders);
   }
 
@@ -1582,6 +1733,7 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       select: {
         id: true,
         status: true,
+        manager: { select: { email: true } },
         tournament: { select: { cityId: true } },
       },
     });
@@ -1647,6 +1799,23 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         newValue: { status: updated.status, reviewNotes: updated.reviewNotes },
       },
     });
+    if (nextStatus === TeamStatus.APPROVED || nextStatus === TeamStatus.REJECTED) {
+      await dispatchNotification(
+        prisma,
+        {
+          recipientUserId: null,
+          recipientEmail: existing.manager?.email ?? null,
+          createdByUserId: auth.user.id,
+          type: "team.reviewed",
+          title: "Team application updated",
+          body: `Your team is ${parsed.data.status}.`,
+          resourceType: "team",
+          resourceId: updated.id,
+          email: true,
+        },
+        getEmailTransport(),
+      );
+    }
 
     return jsonResponse(200, { ok: true, team: mapTeamPayload(updated) }, authHeaders);
   }
@@ -1786,6 +1955,8 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       select: {
         id: true,
         status: true,
+        email: true,
+        user: { select: { email: true } },
         team: { select: { tournament: { select: { cityId: true } } } },
       },
     });
@@ -1850,6 +2021,23 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         newValue: { status: updated.status, reviewNotes: updated.reviewNotes },
       },
     });
+    if (nextStatus === PlayerStatus.APPROVED || nextStatus === PlayerStatus.DISQUALIFIED) {
+      await dispatchNotification(
+        prisma,
+        {
+          recipientUserId: null,
+          recipientEmail: existing.user?.email ?? existing.email,
+          createdByUserId: auth.user.id,
+          type: "player.reviewed",
+          title: "Player registration updated",
+          body: `Your player registration is ${parsed.data.status}.`,
+          resourceType: "player",
+          resourceId: updated.id,
+          email: true,
+        },
+        getEmailTransport(),
+      );
+    }
 
     return jsonResponse(200, { ok: true, player: mapPlayerPayload(updated) }, authHeaders);
   }
@@ -2384,6 +2572,949 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
     });
 
     return jsonResponse(201, { ok: true, award }, authHeaders);
+  }
+
+  // Phase 3: volunteers
+  if (request.method === "POST" && url.pathname === "/api/volunteer-applications") {
+    const guard = applyEndpointRateLimit("volunteers:create", APPLICATION_SUBMIT_RATE_LIMIT);
+    if (guard) return guard;
+
+    const parsed = volunteerApplicationSchema.safeParse(await parseJsonBody(request));
+    if (!parsed.success) {
+      return jsonResponse(400, { ok: false, error: "Invalid payload" }, authHeaders);
+    }
+    const city = await prisma.city.findUnique({ where: { slug: parsed.data.citySlug } });
+    if (!city) return jsonResponse(404, { ok: false, error: "City not found" }, authHeaders);
+
+    const application = await prisma.volunteerApplication.create({
+      data: {
+        cityId: city.id,
+        applicantUserId: auth.user?.id ?? null,
+        name: parsed.data.name,
+        email: parsed.data.email,
+        role: parsed.data.role,
+        availability: parsed.data.availability,
+      },
+    });
+    await prisma.auditLog.create({
+      data: {
+        actorId: auth.user?.id ?? null,
+        action: "volunteer.application.submitted",
+        resourceType: "volunteer_application",
+        resourceId: application.id,
+        cityId: city.id,
+      },
+    });
+    return jsonResponse(201, { ok: true, application }, authHeaders);
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/volunteer-applications") {
+    if (!auth.user) return jsonResponse(401, { ok: false, error: "Unauthorized" }, authHeaders);
+    const citySlug = url.searchParams.get("citySlug");
+    if (!citySlug)
+      return jsonResponse(400, { ok: false, error: "citySlug is required" }, authHeaders);
+    const city = await prisma.city.findUnique({ where: { slug: citySlug } });
+    if (!city) return jsonResponse(404, { ok: false, error: "City not found" }, authHeaders);
+    if (!(await canAccessCityOperations(auth.user, auth.assignments, city.id))) {
+      return jsonResponse(403, { ok: false, error: "Forbidden" }, authHeaders);
+    }
+    const pagination = paginationSchema.safeParse({
+      page: url.searchParams.get("page") ?? "1",
+      pageSize: url.searchParams.get("pageSize") ?? "20",
+    });
+    if (!pagination.success)
+      return jsonResponse(400, { ok: false, error: "Invalid pagination" }, authHeaders);
+    const { page, pageSize } = pagination.data;
+    const [applications, total] = await Promise.all([
+      prisma.volunteerApplication.findMany({
+        where: { cityId: city.id },
+        orderBy: { submittedAt: "desc" },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      prisma.volunteerApplication.count({ where: { cityId: city.id } }),
+    ]);
+    return jsonResponse(200, { ok: true, applications, page, pageSize, total }, authHeaders);
+  }
+
+  if (request.method === "PATCH" && url.pathname.startsWith("/api/volunteer-applications/")) {
+    if (!auth.user) return jsonResponse(401, { ok: false, error: "Unauthorized" }, authHeaders);
+    const id = decodeURIComponent(url.pathname.split("/").at(-1) ?? "");
+    const application = await prisma.volunteerApplication.findUnique({ where: { id } });
+    if (!application)
+      return jsonResponse(
+        404,
+        { ok: false, error: "Volunteer application not found" },
+        authHeaders,
+      );
+    if (!(await canAccessCityOperations(auth.user, auth.assignments, application.cityId))) {
+      return jsonResponse(403, { ok: false, error: "Forbidden" }, authHeaders);
+    }
+    const parsed = volunteerReviewSchema.safeParse(await parseJsonBody(request));
+    if (!parsed.success)
+      return jsonResponse(400, { ok: false, error: "Invalid payload" }, authHeaders);
+    const status = statusFromKebab(parsed.data.status, Object.values(VolunteerApplicationStatus));
+    try {
+      assertVolunteerApplicationTransition(application.status, status);
+    } catch (error) {
+      return jsonResponse(
+        409,
+        { ok: false, error: error instanceof Error ? error.message : "Invalid transition" },
+        authHeaders,
+      );
+    }
+    if (parsed.data.tournamentId) {
+      const tournament = await resolveTournamentScope(parsed.data.tournamentId);
+      if (!tournament || tournament.cityId !== application.cityId) {
+        return jsonResponse(
+          400,
+          { ok: false, error: "Invalid tournament assignment" },
+          authHeaders,
+        );
+      }
+    }
+    const updated = await prisma.$transaction(async (tx) => {
+      const reviewed = await tx.volunteerApplication.update({
+        where: { id },
+        data: {
+          status,
+          reviewNotes: parsed.data.reviewNotes ?? null,
+          reviewerUserId: auth.user!.id,
+          reviewedAt: new Date(),
+        },
+      });
+      if (status === VolunteerApplicationStatus.APPROVED) {
+        await tx.volunteer.upsert({
+          where: { applicationId: id },
+          update: { role: application.role, tournamentId: parsed.data.tournamentId ?? null },
+          create: {
+            cityId: application.cityId,
+            applicationId: id,
+            userId: application.applicantUserId,
+            role: application.role,
+            tournamentId: parsed.data.tournamentId ?? null,
+          },
+        });
+      }
+      return reviewed;
+    });
+    await dispatchNotification(
+      prisma,
+      {
+        recipientUserId: application.applicantUserId,
+        recipientEmail: application.email,
+        createdByUserId: auth.user.id,
+        type: "volunteer.application.status",
+        title: "Volunteer application updated",
+        body: `Your volunteer application is ${parsed.data.status}.`,
+        resourceType: "volunteer_application",
+        resourceId: id,
+        email: true,
+      },
+      getEmailTransport(),
+    );
+    await prisma.auditLog.create({
+      data: {
+        actorId: auth.user.id,
+        action: "volunteer.application.reviewed",
+        resourceType: "volunteer_application",
+        resourceId: id,
+        cityId: application.cityId,
+        oldValue: { status: application.status },
+        newValue: { status, tournamentId: parsed.data.tournamentId ?? null },
+      },
+    });
+    return jsonResponse(200, { ok: true, application: updated }, authHeaders);
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/volunteer-requirements") {
+    const tournamentId = url.searchParams.get("tournamentId");
+    if (!tournamentId)
+      return jsonResponse(400, { ok: false, error: "tournamentId is required" }, authHeaders);
+    const tournament = await resolveTournamentScope(tournamentId);
+    if (!tournament)
+      return jsonResponse(404, { ok: false, error: "Tournament not found" }, authHeaders);
+    const requirements = await prisma.volunteerRequirement.findMany({
+      where: { tournamentId },
+      orderBy: { role: "asc" },
+    });
+    const volunteers = await prisma.volunteer.groupBy({
+      where: { tournamentId },
+      by: ["role"],
+      _count: { id: true },
+    });
+    return jsonResponse(
+      200,
+      {
+        ok: true,
+        requirements: requirements.map((item) => ({
+          ...item,
+          approvedCount:
+            volunteers.find((volunteer) => volunteer.role === item.role)?._count.id ?? 0,
+        })),
+      },
+      authHeaders,
+    );
+  }
+
+  if (request.method === "PUT" && url.pathname === "/api/volunteer-requirements") {
+    if (!auth.user) return jsonResponse(401, { ok: false, error: "Unauthorized" }, authHeaders);
+    const parsed = volunteerRequirementSchema.safeParse(await parseJsonBody(request));
+    if (!parsed.success)
+      return jsonResponse(400, { ok: false, error: "Invalid payload" }, authHeaders);
+    const tournament = await resolveTournamentScope(parsed.data.tournamentId);
+    if (!tournament)
+      return jsonResponse(404, { ok: false, error: "Tournament not found" }, authHeaders);
+    if (!(await canAccessCityOperations(auth.user, auth.assignments, tournament.cityId)))
+      return jsonResponse(403, { ok: false, error: "Forbidden" }, authHeaders);
+    const requirement = await prisma.volunteerRequirement.upsert({
+      where: {
+        tournamentId_role: { tournamentId: parsed.data.tournamentId, role: parsed.data.role },
+      },
+      update: { requiredCount: parsed.data.requiredCount },
+      create: parsed.data,
+    });
+    await prisma.auditLog.create({
+      data: {
+        actorId: auth.user.id,
+        action: "volunteer.requirement.updated",
+        resourceType: "volunteer_requirement",
+        resourceId: requirement.id,
+        cityId: tournament.cityId,
+        newValue: { role: requirement.role, requiredCount: requirement.requiredCount },
+      },
+    });
+    return jsonResponse(200, { ok: true, requirement }, authHeaders);
+  }
+
+  if (
+    request.method === "POST" &&
+    url.pathname.startsWith("/api/volunteers/") &&
+    url.pathname.endsWith("/check-ins")
+  ) {
+    if (!auth.user) return jsonResponse(401, { ok: false, error: "Unauthorized" }, authHeaders);
+    const volunteerId = decodeURIComponent(url.pathname.split("/").at(-2) ?? "");
+    const volunteer = await prisma.volunteer.findUnique({
+      where: { id: volunteerId },
+      include: { tournament: true },
+    });
+    if (!volunteer)
+      return jsonResponse(404, { ok: false, error: "Volunteer not found" }, authHeaders);
+    if (!(await canAccessCityOperations(auth.user, auth.assignments, volunteer.cityId)))
+      return jsonResponse(403, { ok: false, error: "Forbidden" }, authHeaders);
+    const parsed = volunteerCheckInSchema.safeParse(await parseJsonBody(request));
+    if (!parsed.success)
+      return jsonResponse(400, { ok: false, error: "Invalid payload" }, authHeaders);
+    const checkIn = await prisma.$transaction(async (tx) => {
+      const created = await tx.volunteerCheckIn.create({
+        data: { volunteerId, note: parsed.data.note ?? null },
+      });
+      await tx.volunteer.update({
+        where: { id: volunteerId },
+        data: { attendanceCount: { increment: 1 } },
+      });
+      return created;
+    });
+    await prisma.auditLog.create({
+      data: {
+        actorId: auth.user.id,
+        action: "volunteer.checked_in",
+        resourceType: "volunteer",
+        resourceId: volunteerId,
+        cityId: volunteer.cityId,
+        newValue: { checkInId: checkIn.id },
+      },
+    });
+    return jsonResponse(201, { ok: true, checkIn }, authHeaders);
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/volunteers") {
+    if (!auth.user) return jsonResponse(401, { ok: false, error: "Unauthorized" }, authHeaders);
+    const tournamentId = url.searchParams.get("tournamentId");
+    if (!tournamentId)
+      return jsonResponse(400, { ok: false, error: "tournamentId is required" }, authHeaders);
+    const tournament = await resolveTournamentScope(tournamentId);
+    if (!tournament)
+      return jsonResponse(404, { ok: false, error: "Tournament not found" }, authHeaders);
+    if (!(await canAccessCityOperations(auth.user, auth.assignments, tournament.cityId)))
+      return jsonResponse(403, { ok: false, error: "Forbidden" }, authHeaders);
+    const volunteers = await prisma.volunteer.findMany({
+      where: { tournamentId },
+      include: { application: { select: { name: true, email: true } } },
+      orderBy: { role: "asc" },
+    });
+    return jsonResponse(
+      200,
+      {
+        ok: true,
+        volunteers: volunteers.map((volunteer) => ({
+          id: volunteer.id,
+          role: volunteer.role,
+          attendanceCount: volunteer.attendanceCount,
+          applicant: { name: volunteer.application.name, email: volunteer.application.email },
+        })),
+      },
+      authHeaders,
+    );
+  }
+
+  // Phase 3: sponsorship enquiries and sponsor publishing
+  if (request.method === "POST" && url.pathname === "/api/sponsorship-enquiries") {
+    const guard = applyEndpointRateLimit(
+      "sponsorship-enquiries:create",
+      APPLICATION_SUBMIT_RATE_LIMIT,
+    );
+    if (guard) return guard;
+    const parsed = sponsorshipEnquirySchema.safeParse(await parseJsonBody(request));
+    if (!parsed.success)
+      return jsonResponse(400, { ok: false, error: "Invalid payload" }, authHeaders);
+    const city = await prisma.city.findUnique({ where: { slug: parsed.data.citySlug } });
+    if (!city) return jsonResponse(404, { ok: false, error: "City not found" }, authHeaders);
+    if (parsed.data.tournamentId) {
+      const tournament = await resolveTournamentScope(parsed.data.tournamentId);
+      if (!tournament || tournament.cityId !== city.id) {
+        return jsonResponse(400, { ok: false, error: "Invalid tournament" }, authHeaders);
+      }
+    }
+    const enquiry = await prisma.sponsorshipEnquiry.create({
+      data: {
+        cityId: city.id,
+        tournamentId: parsed.data.tournamentId ?? null,
+        name: parsed.data.name,
+        email: parsed.data.email,
+        organization: parsed.data.organization ?? null,
+        message: parsed.data.message,
+      },
+    });
+    const admins = await prisma.roleAssignment.findMany({
+      where: { role: Role.ADMIN },
+      select: { userId: true, user: { select: { email: true } } },
+    });
+    await Promise.all(
+      admins.map((admin) =>
+        dispatchNotification(
+          prisma,
+          {
+            recipientUserId: admin.userId,
+            recipientEmail: admin.user.email,
+            type: "sponsorship.enquiry.submitted",
+            title: "New sponsorship enquiry",
+            body: `${enquiry.name} submitted a sponsorship enquiry for ${city.name}.`,
+            resourceType: "sponsorship_enquiry",
+            resourceId: enquiry.id,
+            email: true,
+          },
+          getEmailTransport(),
+        ),
+      ),
+    );
+    await prisma.auditLog.create({
+      data: {
+        actorId: auth.user?.id ?? null,
+        action: "sponsorship.enquiry.submitted",
+        resourceType: "sponsorship_enquiry",
+        resourceId: enquiry.id,
+        cityId: city.id,
+      },
+    });
+    return jsonResponse(201, { ok: true, enquiry }, authHeaders);
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/sponsorship-enquiries") {
+    if (!auth.user || !isAdmin(auth.user, auth.assignments)) {
+      return jsonResponse(
+        auth.user ? 403 : 401,
+        { ok: false, error: auth.user ? "Forbidden" : "Unauthorized" },
+        authHeaders,
+      );
+    }
+    const pagination = paginationSchema.safeParse({
+      page: url.searchParams.get("page") ?? "1",
+      pageSize: url.searchParams.get("pageSize") ?? "20",
+    });
+    if (!pagination.success) {
+      return jsonResponse(400, { ok: false, error: "Invalid pagination" }, authHeaders);
+    }
+    const { page, pageSize } = pagination.data;
+    const [enquiries, total] = await Promise.all([
+      prisma.sponsorshipEnquiry.findMany({
+        include: { city: { select: { name: true, slug: true } } },
+        orderBy: { createdAt: "desc" },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      prisma.sponsorshipEnquiry.count(),
+    ]);
+    return jsonResponse(200, { ok: true, enquiries, page, pageSize, total }, authHeaders);
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/sponsorships") {
+    const citySlug = url.searchParams.get("citySlug");
+    if (!citySlug)
+      return jsonResponse(400, { ok: false, error: "citySlug is required" }, authHeaders);
+    const city = await prisma.city.findUnique({ where: { slug: citySlug } });
+    if (!city) return jsonResponse(404, { ok: false, error: "City not found" }, authHeaders);
+    const isScopedOperator =
+      auth.user && (await canAccessCityOperations(auth.user, auth.assignments, city.id));
+    const sponsorships = await prisma.sponsorship.findMany({
+      where: { cityId: city.id, ...(isScopedOperator ? {} : { isPublished: true }) },
+      include: { sponsor: true },
+      orderBy: [{ tier: "asc" }, { sortOrder: "asc" }],
+    });
+    return jsonResponse(200, { ok: true, sponsorships }, authHeaders);
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/sponsorships") {
+    if (!auth.user || !isAdmin(auth.user, auth.assignments)) {
+      return jsonResponse(
+        auth.user ? 403 : 401,
+        { ok: false, error: auth.user ? "Forbidden" : "Unauthorized" },
+        authHeaders,
+      );
+    }
+    const parsed = sponsorSchema.safeParse(await parseJsonBody(request));
+    if (!parsed.success)
+      return jsonResponse(400, { ok: false, error: "Invalid payload" }, authHeaders);
+    const city = await prisma.city.findUnique({ where: { slug: parsed.data.citySlug } });
+    if (!city) return jsonResponse(404, { ok: false, error: "City not found" }, authHeaders);
+    const sponsor = await prisma.sponsor.upsert({
+      where: { slug: parsed.data.slug },
+      update: {
+        name: parsed.data.name,
+        description: parsed.data.description,
+        website: parsed.data.website ?? null,
+        logoUrl: parsed.data.logoUrl ?? null,
+      },
+      create: {
+        slug: parsed.data.slug,
+        name: parsed.data.name,
+        description: parsed.data.description,
+        website: parsed.data.website ?? null,
+        logoUrl: parsed.data.logoUrl ?? null,
+      },
+    });
+    const sponsorship = await prisma.sponsorship.create({
+      data: {
+        sponsorId: sponsor.id,
+        cityId: city.id,
+        tournamentId: parsed.data.tournamentId ?? null,
+        tier: statusFromKebab(parsed.data.tier, Object.values(SponsorshipTier)),
+        isPublished: parsed.data.isPublished ?? false,
+        sortOrder: parsed.data.sortOrder ?? 0,
+        startsAt: parsed.data.startsAt ? new Date(parsed.data.startsAt) : null,
+        endsAt: parsed.data.endsAt ? new Date(parsed.data.endsAt) : null,
+      },
+      include: { sponsor: true },
+    });
+    await prisma.auditLog.create({
+      data: {
+        actorId: auth.user.id,
+        action: "sponsorship.created",
+        resourceType: "sponsorship",
+        resourceId: sponsorship.id,
+        cityId: city.id,
+      },
+    });
+    return jsonResponse(201, { ok: true, sponsorship }, authHeaders);
+  }
+
+  if (request.method === "PATCH" && url.pathname.startsWith("/api/sponsorships/")) {
+    if (!auth.user || !isAdmin(auth.user, auth.assignments))
+      return jsonResponse(
+        auth.user ? 403 : 401,
+        { ok: false, error: auth.user ? "Forbidden" : "Unauthorized" },
+        authHeaders,
+      );
+    const id = decodeURIComponent(url.pathname.split("/").at(-1) ?? "");
+    const existing = await prisma.sponsorship.findUnique({ where: { id } });
+    if (!existing)
+      return jsonResponse(404, { ok: false, error: "Sponsorship not found" }, authHeaders);
+    const parsed = sponsorshipUpdateSchema.safeParse(await parseJsonBody(request));
+    if (!parsed.success)
+      return jsonResponse(400, { ok: false, error: "Invalid payload" }, authHeaders);
+    if (parsed.data.tournamentId) {
+      const tournament = await resolveTournamentScope(parsed.data.tournamentId);
+      if (!tournament || tournament.cityId !== existing.cityId)
+        return jsonResponse(400, { ok: false, error: "Invalid tournament" }, authHeaders);
+    }
+    const sponsorship = await prisma.sponsorship.update({
+      where: { id },
+      data: {
+        ...(parsed.data.tournamentId === undefined
+          ? {}
+          : { tournamentId: parsed.data.tournamentId ?? null }),
+        ...(parsed.data.tier
+          ? { tier: statusFromKebab(parsed.data.tier, Object.values(SponsorshipTier)) }
+          : {}),
+        ...(parsed.data.isPublished === undefined ? {} : { isPublished: parsed.data.isPublished }),
+        ...(parsed.data.sortOrder === undefined ? {} : { sortOrder: parsed.data.sortOrder }),
+        ...(parsed.data.startsAt === undefined
+          ? {}
+          : { startsAt: parsed.data.startsAt ? new Date(parsed.data.startsAt) : null }),
+        ...(parsed.data.endsAt === undefined
+          ? {}
+          : { endsAt: parsed.data.endsAt ? new Date(parsed.data.endsAt) : null }),
+      },
+      include: { sponsor: true },
+    });
+    await prisma.auditLog.create({
+      data: {
+        actorId: auth.user.id,
+        action: "sponsorship.updated",
+        resourceType: "sponsorship",
+        resourceId: id,
+        cityId: existing.cityId,
+        oldValue: { isPublished: existing.isPublished, sortOrder: existing.sortOrder },
+        newValue: { isPublished: sponsorship.isPublished, sortOrder: sponsorship.sortOrder },
+      },
+    });
+    return jsonResponse(200, { ok: true, sponsorship }, authHeaders);
+  }
+
+  if (request.method === "DELETE" && url.pathname.startsWith("/api/sponsorships/")) {
+    if (!auth.user || !isAdmin(auth.user, auth.assignments))
+      return jsonResponse(
+        auth.user ? 403 : 401,
+        { ok: false, error: auth.user ? "Forbidden" : "Unauthorized" },
+        authHeaders,
+      );
+    const id = decodeURIComponent(url.pathname.split("/").at(-1) ?? "");
+    const existing = await prisma.sponsorship.findUnique({ where: { id } });
+    if (!existing)
+      return jsonResponse(404, { ok: false, error: "Sponsorship not found" }, authHeaders);
+    await prisma.sponsorship.delete({ where: { id } });
+    await prisma.auditLog.create({
+      data: {
+        actorId: auth.user.id,
+        action: "sponsorship.deleted",
+        resourceType: "sponsorship",
+        resourceId: id,
+        cityId: existing.cityId,
+      },
+    });
+    return jsonResponse(200, { ok: true }, authHeaders);
+  }
+
+  // Phase 3: announcements
+  if (request.method === "GET" && url.pathname === "/api/announcements") {
+    const citySlug = url.searchParams.get("citySlug");
+    if (!citySlug)
+      return jsonResponse(400, { ok: false, error: "citySlug is required" }, authHeaders);
+    const city = await prisma.city.findUnique({ where: { slug: citySlug } });
+    if (!city) return jsonResponse(404, { ok: false, error: "City not found" }, authHeaders);
+    const isScopedOperator =
+      auth.user && (await canAccessCityOperations(auth.user, auth.assignments, city.id));
+    const announcements = await prisma.announcement.findMany({
+      where: {
+        cityId: city.id,
+        ...(isScopedOperator ? {} : { status: ContentPublishStatus.PUBLISHED }),
+      },
+      include: { author: { select: { name: true } } },
+      orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+    });
+    return jsonResponse(
+      200,
+      {
+        ok: true,
+        announcements: announcements.map(({ author, ...announcement }) => ({
+          ...announcement,
+          authorName: author?.name ?? null,
+        })),
+      },
+      authHeaders,
+    );
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/announcements") {
+    if (!auth.user) return jsonResponse(401, { ok: false, error: "Unauthorized" }, authHeaders);
+    const parsed = announcementSchema.safeParse(await parseJsonBody(request));
+    if (!parsed.success)
+      return jsonResponse(400, { ok: false, error: "Invalid payload" }, authHeaders);
+    const city = await prisma.city.findUnique({ where: { slug: parsed.data.citySlug } });
+    if (!city) return jsonResponse(404, { ok: false, error: "City not found" }, authHeaders);
+    if (!(await canAccessCityOperations(auth.user, auth.assignments, city.id)))
+      return jsonResponse(403, { ok: false, error: "Forbidden" }, authHeaders);
+    const status = statusFromKebab(parsed.data.status, Object.values(ContentPublishStatus));
+    const announcement = await prisma.announcement.create({
+      data: {
+        cityId: city.id,
+        tournamentId: parsed.data.tournamentId ?? null,
+        authorUserId: auth.user.id,
+        headline: parsed.data.headline,
+        excerpt: parsed.data.excerpt,
+        body: parsed.data.body,
+        category: parsed.data.category,
+        featuredImageUrl: parsed.data.featuredImageUrl ?? null,
+        status,
+        publishedAt: status === ContentPublishStatus.PUBLISHED ? new Date() : null,
+      },
+    });
+    await prisma.auditLog.create({
+      data: {
+        actorId: auth.user.id,
+        action: "announcement.created",
+        resourceType: "announcement",
+        resourceId: announcement.id,
+        cityId: city.id,
+        newValue: { status },
+      },
+    });
+    if (status === ContentPublishStatus.PUBLISHED) {
+      await notifyCityAudience({
+        cityId: city.id,
+        createdByUserId: auth.user.id,
+        type: "announcement.published",
+        title: "New city announcement",
+        body: announcement.headline,
+        resourceType: "announcement",
+        resourceId: announcement.id,
+      });
+    }
+    return jsonResponse(201, { ok: true, announcement }, authHeaders);
+  }
+
+  if (request.method === "PATCH" && url.pathname.startsWith("/api/announcements/")) {
+    if (!auth.user) return jsonResponse(401, { ok: false, error: "Unauthorized" }, authHeaders);
+    const id = decodeURIComponent(url.pathname.split("/").at(-1) ?? "");
+    const announcement = await prisma.announcement.findUnique({ where: { id } });
+    if (!announcement)
+      return jsonResponse(404, { ok: false, error: "Announcement not found" }, authHeaders);
+    if (!(await canAccessCityOperations(auth.user, auth.assignments, announcement.cityId)))
+      return jsonResponse(403, { ok: false, error: "Forbidden" }, authHeaders);
+    const parsed = announcementUpdateSchema.safeParse(await parseJsonBody(request));
+    if (!parsed.success)
+      return jsonResponse(400, { ok: false, error: "Invalid payload" }, authHeaders);
+    const status = parsed.data.status
+      ? statusFromKebab(parsed.data.status, Object.values(ContentPublishStatus))
+      : announcement.status;
+    try {
+      assertAnnouncementTransition(announcement.status, status);
+    } catch (error) {
+      return jsonResponse(
+        409,
+        { ok: false, error: error instanceof Error ? error.message : "Invalid transition" },
+        authHeaders,
+      );
+    }
+    const updated = await prisma.announcement.update({
+      where: { id },
+      data: {
+        ...(parsed.data.tournamentId === undefined
+          ? {}
+          : { tournamentId: parsed.data.tournamentId ?? null }),
+        ...(parsed.data.headline === undefined ? {} : { headline: parsed.data.headline }),
+        ...(parsed.data.excerpt === undefined ? {} : { excerpt: parsed.data.excerpt }),
+        ...(parsed.data.body === undefined ? {} : { body: parsed.data.body }),
+        ...(parsed.data.category === undefined ? {} : { category: parsed.data.category }),
+        ...(parsed.data.featuredImageUrl === undefined
+          ? {}
+          : { featuredImageUrl: parsed.data.featuredImageUrl ?? null }),
+        status,
+        publishedAt:
+          status === ContentPublishStatus.PUBLISHED
+            ? (announcement.publishedAt ?? new Date())
+            : null,
+      },
+    });
+    await prisma.auditLog.create({
+      data: {
+        actorId: auth.user.id,
+        action: "announcement.updated",
+        resourceType: "announcement",
+        resourceId: id,
+        cityId: announcement.cityId,
+        oldValue: { status: announcement.status },
+        newValue: { status },
+      },
+    });
+    if (
+      status === ContentPublishStatus.PUBLISHED &&
+      announcement.status !== ContentPublishStatus.PUBLISHED
+    ) {
+      await notifyCityAudience({
+        cityId: announcement.cityId,
+        createdByUserId: auth.user.id,
+        type: "announcement.published",
+        title: "New city announcement",
+        body: updated.headline,
+        resourceType: "announcement",
+        resourceId: updated.id,
+      });
+    }
+    return jsonResponse(200, { ok: true, announcement: updated }, authHeaders);
+  }
+
+  if (request.method === "DELETE" && url.pathname.startsWith("/api/announcements/")) {
+    if (!auth.user) return jsonResponse(401, { ok: false, error: "Unauthorized" }, authHeaders);
+    const id = decodeURIComponent(url.pathname.split("/").at(-1) ?? "");
+    const announcement = await prisma.announcement.findUnique({ where: { id } });
+    if (!announcement)
+      return jsonResponse(404, { ok: false, error: "Announcement not found" }, authHeaders);
+    if (!(await canAccessCityOperations(auth.user, auth.assignments, announcement.cityId)))
+      return jsonResponse(403, { ok: false, error: "Forbidden" }, authHeaders);
+    const archived = await prisma.announcement.update({
+      where: { id },
+      data: { status: ContentPublishStatus.ARCHIVED, publishedAt: null },
+    });
+    await prisma.auditLog.create({
+      data: {
+        actorId: auth.user.id,
+        action: "announcement.archived",
+        resourceType: "announcement",
+        resourceId: id,
+        cityId: announcement.cityId,
+        oldValue: { status: announcement.status },
+        newValue: { status: archived.status },
+      },
+    });
+    return jsonResponse(200, { ok: true, announcement: archived }, authHeaders);
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/notifications") {
+    if (!auth.user) return jsonResponse(401, { ok: false, error: "Unauthorized" }, authHeaders);
+    const where = { recipientUserId: auth.user.id, channel: "IN_APP" as const };
+    const [notifications, unreadCount] = await Promise.all([
+      prisma.notification.findMany({ where, orderBy: { createdAt: "desc" }, take: 50 }),
+      prisma.notification.count({ where: { ...where, readAt: null } }),
+    ]);
+    return jsonResponse(200, { ok: true, notifications, unreadCount }, authHeaders);
+  }
+
+  if (request.method === "PATCH" && url.pathname === "/api/notifications/read") {
+    if (!auth.user) return jsonResponse(401, { ok: false, error: "Unauthorized" }, authHeaders);
+    await prisma.notification.updateMany({
+      where: { recipientUserId: auth.user.id, channel: "IN_APP", readAt: null },
+      data: { readAt: new Date() },
+    });
+    return jsonResponse(200, { ok: true }, authHeaders);
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/notifications/deliver-queued") {
+    if (!auth.user || !isAdmin(auth.user, auth.assignments)) {
+      return jsonResponse(
+        auth.user ? 403 : 401,
+        { ok: false, error: auth.user ? "Forbidden" : "Unauthorized" },
+        authHeaders,
+      );
+    }
+    const transport = getEmailTransport();
+    if (!transport) {
+      return jsonResponse(
+        503,
+        { ok: false, error: "Email delivery is not configured" },
+        authHeaders,
+      );
+    }
+    const result = await deliverQueuedEmailNotifications(prisma, transport);
+    return jsonResponse(200, { ok: true, ...result }, authHeaders);
+  }
+
+  if (request.method === "PATCH" && url.pathname.startsWith("/api/notifications/")) {
+    if (!auth.user) return jsonResponse(401, { ok: false, error: "Unauthorized" }, authHeaders);
+    const id = decodeURIComponent(url.pathname.split("/").at(-1) ?? "");
+    const notification = await prisma.notification.updateMany({
+      where: { id, recipientUserId: auth.user.id },
+      data: { readAt: new Date() },
+    });
+    if (!notification.count)
+      return jsonResponse(404, { ok: false, error: "Notification not found" }, authHeaders);
+    return jsonResponse(200, { ok: true }, authHeaders);
+  }
+
+  // Phase 3: galleries and media. Files are stored in Supabase Storage; Prisma keeps metadata only.
+  if (request.method === "GET" && url.pathname === "/api/galleries") {
+    const citySlug = url.searchParams.get("citySlug");
+    if (!citySlug)
+      return jsonResponse(400, { ok: false, error: "citySlug is required" }, authHeaders);
+    const city = await prisma.city.findUnique({ where: { slug: citySlug } });
+    if (!city) return jsonResponse(404, { ok: false, error: "City not found" }, authHeaders);
+    const galleries = await prisma.gallery.findMany({
+      where: { cityId: city.id },
+      include: { media: { orderBy: [{ isCover: "desc" }, { createdAt: "desc" }] } },
+      orderBy: { createdAt: "desc" },
+    });
+    return jsonResponse(
+      200,
+      {
+        ok: true,
+        galleries: galleries.map((gallery) => ({
+          ...gallery,
+          media: gallery.media.map((media) => ({
+            ...media,
+            publicUrl: publicGalleryUrl(media.storagePath),
+          })),
+        })),
+      },
+      authHeaders,
+    );
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/galleries") {
+    if (!auth.user) return jsonResponse(401, { ok: false, error: "Unauthorized" }, authHeaders);
+    const parsed = gallerySchema.safeParse(await parseJsonBody(request));
+    if (!parsed.success)
+      return jsonResponse(400, { ok: false, error: "Invalid payload" }, authHeaders);
+    const city = await prisma.city.findUnique({ where: { slug: parsed.data.citySlug } });
+    if (!city) return jsonResponse(404, { ok: false, error: "City not found" }, authHeaders);
+    if (!(await canAccessCityOperations(auth.user, auth.assignments, city.id)))
+      return jsonResponse(403, { ok: false, error: "Forbidden" }, authHeaders);
+    const gallery = await prisma.gallery.create({
+      data: {
+        cityId: city.id,
+        createdByUserId: auth.user.id,
+        title: parsed.data.title,
+        description: parsed.data.description ?? null,
+      },
+    });
+    await prisma.auditLog.create({
+      data: {
+        actorId: auth.user.id,
+        action: "gallery.created",
+        resourceType: "gallery",
+        resourceId: gallery.id,
+        cityId: city.id,
+      },
+    });
+    return jsonResponse(201, { ok: true, gallery }, authHeaders);
+  }
+
+  if (
+    request.method === "POST" &&
+    url.pathname.startsWith("/api/galleries/") &&
+    url.pathname.endsWith("/media")
+  ) {
+    if (!auth.user) return jsonResponse(401, { ok: false, error: "Unauthorized" }, authHeaders);
+    const galleryId = decodeURIComponent(url.pathname.split("/").at(-2) ?? "");
+    const gallery = await prisma.gallery.findUnique({ where: { id: galleryId } });
+    if (!gallery) return jsonResponse(404, { ok: false, error: "Gallery not found" }, authHeaders);
+    if (!(await canAccessCityOperations(auth.user, auth.assignments, gallery.cityId)))
+      return jsonResponse(403, { ok: false, error: "Forbidden" }, authHeaders);
+    const formData = await request.formData();
+    const file = formData.get("file");
+    if (!(file instanceof File)) {
+      return jsonResponse(400, { ok: false, error: "Image file is required" }, authHeaders);
+    }
+    const parsed = mediaMetadataSchema.safeParse({
+      caption: formData.get("caption") || undefined,
+      credit: formData.get("credit") || undefined,
+      isCover: formData.get("isCover") === "true",
+    });
+    if (!parsed.success)
+      return jsonResponse(400, { ok: false, error: "Invalid media payload" }, authHeaders);
+    let uploaded: Awaited<ReturnType<typeof uploadGalleryMedia>>;
+    try {
+      uploaded = await uploadGalleryMedia({
+        galleryId,
+        fileName: file.name,
+        mimeType: file.type,
+        bytes: await file.arrayBuffer(),
+      });
+    } catch (error) {
+      return jsonResponse(
+        400,
+        {
+          ok: false,
+          error: error instanceof Error ? error.message : "Unable to upload gallery media",
+        },
+        authHeaders,
+      );
+    }
+    let media;
+    try {
+      media = await prisma.$transaction(async (tx) => {
+        if (parsed.data.isCover)
+          await tx.mediaFile.updateMany({ where: { galleryId }, data: { isCover: false } });
+        return tx.mediaFile.create({
+          data: {
+            galleryId,
+            fileName: file.name,
+            mimeType: file.type,
+            storagePath: uploaded.storagePath,
+            caption: parsed.data.caption ?? null,
+            credit: parsed.data.credit ?? null,
+            isCover: parsed.data.isCover ?? false,
+          },
+        });
+      });
+    } catch {
+      try {
+        await deleteGalleryMedia(uploaded.storagePath);
+      } catch {
+        /* best-effort orphan cleanup */
+      }
+      return jsonResponse(
+        500,
+        { ok: false, error: "Unable to persist gallery media" },
+        authHeaders,
+      );
+    }
+    await prisma.auditLog.create({
+      data: {
+        actorId: auth.user.id,
+        action: "gallery.media.uploaded",
+        resourceType: "media_file",
+        resourceId: media.id,
+        cityId: gallery.cityId,
+      },
+    });
+    await notifyCityAudience({
+      cityId: gallery.cityId,
+      createdByUserId: auth.user.id,
+      type: "gallery.media.uploaded",
+      title: "New gallery media",
+      body: parsed.data.caption ?? `New media added to ${gallery.title}`,
+      resourceType: "media_file",
+      resourceId: media.id,
+    });
+    return jsonResponse(
+      201,
+      { ok: true, media: { ...media, publicUrl: uploaded.publicUrl } },
+      authHeaders,
+    );
+  }
+
+  if (
+    request.method === "DELETE" &&
+    url.pathname.startsWith("/api/galleries/") &&
+    url.pathname.includes("/media/")
+  ) {
+    if (!auth.user) return jsonResponse(401, { ok: false, error: "Unauthorized" }, authHeaders);
+    const [, , , galleryId, , mediaId] = url.pathname.split("/");
+    if (!galleryId || !mediaId)
+      return jsonResponse(404, { ok: false, error: "Not found" }, authHeaders);
+    const media = await prisma.mediaFile.findUnique({
+      where: { id: decodeURIComponent(mediaId) },
+      include: { gallery: true },
+    });
+    if (!media || media.galleryId !== decodeURIComponent(galleryId)) {
+      return jsonResponse(404, { ok: false, error: "Media not found" }, authHeaders);
+    }
+    if (!(await canAccessCityOperations(auth.user, auth.assignments, media.gallery.cityId))) {
+      return jsonResponse(403, { ok: false, error: "Forbidden" }, authHeaders);
+    }
+    try {
+      await deleteGalleryMedia(media.storagePath);
+    } catch (error) {
+      return jsonResponse(
+        502,
+        {
+          ok: false,
+          error: error instanceof Error ? error.message : "Unable to delete gallery media",
+        },
+        authHeaders,
+      );
+    }
+    await prisma.mediaFile.delete({ where: { id: media.id } });
+    await prisma.auditLog.create({
+      data: {
+        actorId: auth.user.id,
+        action: "gallery.media.deleted",
+        resourceType: "media_file",
+        resourceId: media.id,
+        cityId: media.gallery.cityId,
+      },
+    });
+    return jsonResponse(200, { ok: true }, authHeaders);
   }
 
   return jsonResponse(404, { ok: false, error: "Not found" }, authHeaders);

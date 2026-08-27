@@ -3,13 +3,16 @@ import { toast } from "sonner";
 
 import { SectionHeading, StatCard } from "@/components/devkics/brand";
 import { ApplicationQueue } from "./applications";
+import { AnnouncementManager } from "./announcements";
+import { SponsorshipManager } from "./sponsorships";
 import { StatusDot } from "@/routes/index";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useDevKics } from "@/lib/devkics/store";
 
 export function AdminDashboard() {
-  const { teams, players, applications, fixtures, cities, updateCityStatus } = useDevKics();
+  const { teams, players, applications, fixtures, cities, sponsorshipEnquiries, updateCityStatus } =
+    useDevKics();
   const pending = applications.filter((a) => a.status === "pending");
 
   return (
@@ -28,6 +31,15 @@ export function AdminDashboard() {
           </TabsTrigger>
           <TabsTrigger value="applications" className="rounded-full">
             City applications
+          </TabsTrigger>
+          <TabsTrigger value="sponsors" className="rounded-full">
+            Sponsor enquiries
+          </TabsTrigger>
+          <TabsTrigger value="sponsor-management" className="rounded-full">
+            Sponsors
+          </TabsTrigger>
+          <TabsTrigger value="news" className="rounded-full">
+            Newsroom
           </TabsTrigger>
           <TabsTrigger value="activity" className="rounded-full">
             Platform activity
@@ -97,6 +109,48 @@ export function AdminDashboard() {
 
         <TabsContent value="applications" className="mt-8">
           <ApplicationQueue kinds={["city-organizer"]} title="City organizer applications" />
+        </TabsContent>
+
+        <TabsContent value="sponsors" className="mt-8 space-y-4">
+          <SectionHeading
+            title="Sponsorship enquiries"
+            description="New partnership requests submitted from city sponsor pages."
+          />
+          {sponsorshipEnquiries.length === 0 ? (
+            <p className="rounded-2xl border border-dashed border-border p-6 text-sm text-muted-foreground">
+              No sponsorship enquiries yet.
+            </p>
+          ) : (
+            <ul className="space-y-3">
+              {sponsorshipEnquiries.map((enquiry) => (
+                <li key={enquiry.id} className="rounded-2xl border border-border bg-card p-5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="font-semibold">{enquiry.name}</p>
+                    <span className="text-xs text-muted-foreground capitalize">
+                      {enquiry.status.replaceAll("-", " ")}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {enquiry.organization ?? "Independent partner"} · {enquiry.city.name}
+                  </p>
+                  <p className="mt-3 text-sm text-muted-foreground">{enquiry.message}</p>
+                  <a
+                    className="mt-3 inline-block text-sm font-medium text-primary hover:underline"
+                    href={`mailto:${enquiry.email}`}
+                  >
+                    {enquiry.email}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )}
+        </TabsContent>
+
+        <TabsContent value="sponsor-management" className="mt-8">
+          <SponsorshipManager />
+        </TabsContent>
+        <TabsContent value="news" className="mt-8">
+          <AnnouncementManager />
         </TabsContent>
 
         <TabsContent value="activity" className="mt-8 space-y-4">

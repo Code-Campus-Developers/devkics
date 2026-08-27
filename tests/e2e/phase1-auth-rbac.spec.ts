@@ -22,9 +22,10 @@ test.describe("Phase 1 foundation", () => {
 
   test("city organizer application can be submitted from public route", async ({ page }) => {
     await page.goto("/organize");
+    await page.waitForLoadState("networkidle");
 
     await page.getByPlaceholder("Ada Lovelace").fill("Integration Applicant");
-    await page.getByPlaceholder("you@company.com").fill("integration@applicant.dev");
+    await page.getByPlaceholder("you@company.com").fill(`integration-${Date.now()}@applicant.dev`);
     await page.getByPlaceholder("Abuja").fill("Lagos");
     await page
       .getByPlaceholder(

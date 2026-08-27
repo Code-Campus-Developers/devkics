@@ -5,6 +5,13 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useDevKics } from "@/lib/devkics/store";
 import type { ApplicationKind } from "@/lib/devkics/types";
@@ -20,9 +27,15 @@ export function ApplicationForm({
   detailPlaceholder: string;
   submitLabel: string;
 }) {
-  const { submitApplication } = useDevKics();
+  const { cities, submitApplication, submitVolunteerApplication } = useDevKics();
   const [done, setDone] = useState(false);
-  const [form, setForm] = useState({ name: "", email: "", city: "Abuja", detail: "" });
+  const [form, setForm] = useState({
+    name: "",
+    email: "",
+    city: "Abuja",
+    role: "Match official",
+    detail: "",
+  });
 
   if (done) {
     return (
@@ -38,7 +51,7 @@ export function ApplicationForm({
           className="mt-6 rounded-full"
           onClick={() => {
             setDone(false);
-            setForm({ name: "", email: "", city: "Abuja", detail: "" });
+            setForm({ name: "", email: "", city: "Abuja", role: "Match official", detail: "" });
           }}
         >
           Submit another
@@ -53,7 +66,21 @@ export function ApplicationForm({
       onSubmit={async (e) => {
         e.preventDefault();
         try {
-          await submitApplication({ kind, ...form });
+          if (kind === "volunteer") {
+            const citySlug = cities.find(
+              (city) => city.name.toLowerCase() === form.city.trim().toLowerCase(),
+            )?.slug;
+            if (!citySlug) throw new Error("Choose a listed DevKics city.");
+            await submitVolunteerApplication({
+              citySlug,
+              name: form.name,
+              email: form.email,
+              role: form.role,
+              availability: form.detail,
+            });
+          } else {
+            await submitApplication({ kind, ...form });
+          }
           setDone(true);
           toast.success("Application submitted");
         } catch (error) {
@@ -88,6 +115,21 @@ export function ApplicationForm({
           placeholder="Abuja"
         />
       </Field>
+      {kind === "volunteer" && (
+        <Field label="Volunteer role">
+          <Select value={form.role} onValueChange={(role) => setForm({ ...form, role })}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="Match official">Match official</SelectItem>
+              <SelectItem value="Media crew">Media crew</SelectItem>
+              <SelectItem value="Matchday coordinator">Matchday coordinator</SelectItem>
+              <SelectItem value="Comms & social">Comms & social</SelectItem>
+            </SelectContent>
+          </Select>
+        </Field>
+      )}
       <Field label={detailLabel}>
         <Textarea
           required
