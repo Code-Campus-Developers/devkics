@@ -162,6 +162,15 @@ describe("Phase 2 tournament operations", () => {
     const tournamentPayload = (await createTournamentRes?.json()) as {
       tournament: { id: string };
     };
+    await expect(
+      prisma.auditLog.findFirst({
+        where: { action: "tournament.created", resourceId: tournamentPayload.tournament.id },
+      }),
+    ).resolves.toMatchObject({
+      actorId: admin.id,
+      cityId: city?.id,
+      newValue: { name: "Abuja Cup", season: "Season 1", status: "DRAFT" },
+    });
 
     const createOrganizationReq = new Request("http://localhost:8080/api/organizations", {
       method: "POST",
@@ -373,6 +382,12 @@ describe("Phase 2 tournament operations", () => {
 
     const resultRes = await handleApiRequest(resultReq);
     expect(resultRes?.status).toBe(200);
+    const resultAudit = await prisma.auditLog.findFirstOrThrow({
+      where: { action: "match.result.recorded", resourceId: fixturePayload.fixture.id },
+      orderBy: { createdAt: "desc" },
+    });
+    expect(resultAudit.oldValue).toEqual({ match: null });
+    expect(resultAudit.newValue).toMatchObject({ homeScore: 2, awayScore: 1 });
 
     const standingsReq = new Request(
       `http://localhost:8080/api/standings?tournamentId=${encodeURIComponent(tournamentPayload.tournament.id)}`,

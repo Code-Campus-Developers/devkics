@@ -49,6 +49,8 @@ import {
 } from "./community-content";
 import { getEmailTransport } from "./email-transport";
 import { deleteGalleryMedia, publicGalleryUrl, uploadGalleryMedia } from "./supabase-storage";
+import { writeAuditLog } from "./audit-log";
+import { buildReport, reportTypes, toCsv, toExcelXml, toPdf } from "./reports";
 
 type Json = Record<string, unknown>;
 
@@ -450,6 +452,21 @@ const tournamentStatusSchema = z.object({
     "cancelled",
     "archived",
   ]),
+});
+
+const reportQuerySchema = z.object({
+  type: z.enum(reportTypes),
+  format: z.enum(["csv", "excel", "pdf"]),
+  citySlug: z.string().min(2).optional(),
+  countryCode: z.string().length(2).optional(),
+  tournamentId: z.string().min(1).optional(),
+  organizationId: z.string().min(1).optional(),
+  teamId: z.string().min(1).optional(),
+  playerId: z.string().min(1).optional(),
+  volunteerId: z.string().min(1).optional(),
+  sponsorId: z.string().min(1).optional(),
+  from: z.string().date().optional(),
+  to: z.string().date().optional(),
 });
 
 const teamCreateSchema = z.object({
@@ -920,6 +937,15 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       },
     });
 
+    await writeAuditLog(prisma, {
+      actorId: user.id,
+      action: "user.registered",
+      resourceType: "user",
+      resourceId: user.id,
+      cityId: city?.id ?? null,
+      newValue: { role: assignment.role, citySlug: user.citySlug },
+    });
+
     const issued = await issueSession(user, [assignment]);
     const headers = new Headers(authHeaders);
     headers.append("set-cookie", issued.accessCookie);
@@ -978,6 +1004,66 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
     );
   }
 
+  if (request.method === "GET" && url.pathname === "/api/reports/export") {
+    if (!auth.user) return jsonResponse(401, { ok: false, error: "Unauthorized" }, authHeaders);
+    const parsed = reportQuerySchema.safeParse(Object.fromEntries(url.searchParams));
+    if (!parsed.success)
+      return jsonResponse(400, { ok: false, error: "Invalid report query" }, authHeaders);
+
+    const requestedCity = parsed.data.citySlug
+      ? await prisma.city.findUnique({ where: { slug: parsed.data.citySlug } })
+      : null;
+    if (parsed.data.citySlug && !requestedCity)
+      return jsonResponse(404, { ok: false, error: "City not found" }, authHeaders);
+
+    let cityIds: string[] | undefined;
+    if (!isAdmin(auth.user, auth.assignments)) {
+      const organizerCityIds = auth.assignments
+        .filter((assignment) => assignment.role === Role.ORGANIZER && assignment.cityId)
+        .map((assignment) => assignment.cityId!);
+      if (!organizerCityIds.length)
+        return jsonResponse(403, { ok: false, error: "Forbidden" }, authHeaders);
+      if (requestedCity && !organizerCityIds.includes(requestedCity.id))
+        return jsonResponse(403, { ok: false, error: "Forbidden" }, authHeaders);
+      cityIds = requestedCity ? [requestedCity.id] : organizerCityIds;
+    } else if (requestedCity) {
+      cityIds = [requestedCity.id];
+    }
+
+    const report = await buildReport(prisma, parsed.data.type, {
+      ...(cityIds ? { cityIds } : {}),
+      ...(parsed.data.countryCode ? { countryCode: parsed.data.countryCode.toUpperCase() } : {}),
+      ...(parsed.data.tournamentId ? { tournamentId: parsed.data.tournamentId } : {}),
+      ...(parsed.data.organizationId ? { organizationId: parsed.data.organizationId } : {}),
+      ...(parsed.data.teamId ? { teamId: parsed.data.teamId } : {}),
+      ...(parsed.data.playerId ? { playerId: parsed.data.playerId } : {}),
+      ...(parsed.data.volunteerId ? { volunteerId: parsed.data.volunteerId } : {}),
+      ...(parsed.data.sponsorId ? { sponsorId: parsed.data.sponsorId } : {}),
+      ...(parsed.data.from ? { from: new Date(`${parsed.data.from}T00:00:00.000Z`) } : {}),
+      ...(parsed.data.to ? { to: new Date(`${parsed.data.to}T23:59:59.999Z`) } : {}),
+    });
+    const content =
+      parsed.data.format === "csv"
+        ? toCsv(report)
+        : parsed.data.format === "excel"
+          ? toExcelXml(report)
+          : toPdf(report);
+    const extension = parsed.data.format === "excel" ? "xls" : parsed.data.format;
+    const contentType =
+      parsed.data.format === "csv"
+        ? "text/csv; charset=utf-8"
+        : parsed.data.format === "excel"
+          ? "application/vnd.ms-excel"
+          : "application/pdf";
+    const headers = new Headers(authHeaders);
+    headers.set("content-type", contentType);
+    headers.set(
+      "content-disposition",
+      `attachment; filename="devkics-${parsed.data.type}.${extension}"`,
+    );
+    return new Response(content, { status: 200, headers });
+  }
+
   // cities
   if (request.method === "GET" && url.pathname === "/api/cities") {
     const cities = await prisma.city.findMany({ orderBy: { name: "asc" } });
@@ -1010,16 +1096,14 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       data: { status: toCityStatus(parsed.data.status) },
     });
 
-    await prisma.auditLog.create({
-      data: {
-        actorId: auth.user.id,
-        action: "city.status.updated",
-        resourceType: "city",
-        resourceId: updated.id,
-        cityId: updated.id,
-        oldValue: { status: city.status },
-        newValue: { status: updated.status },
-      },
+    await writeAuditLog(prisma, {
+      actorId: auth.user.id,
+      action: "city.status.updated",
+      resourceType: "city",
+      resourceId: updated.id,
+      cityId: updated.id,
+      oldValue: { status: city.status },
+      newValue: { status: updated.status },
     });
 
     return jsonResponse(200, { ok: true, city: mapCityPayload(updated) }, authHeaders);
@@ -1109,6 +1193,15 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       },
     });
 
+    await writeAuditLog(prisma, {
+      actorId: auth.user?.id ?? null,
+      action: "organizer-application.submitted",
+      resourceType: "organizer-application",
+      resourceId: application.id,
+      cityId: application.cityId,
+      newValue: { city: application.city, status: application.status },
+    });
+
     return jsonResponse(
       201,
       { ok: true, application: mapApplicationPayload(application) },
@@ -1150,16 +1243,14 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       },
     });
 
-    await prisma.auditLog.create({
-      data: {
-        actorId: auth.user.id,
-        action: "organizer-application.reviewed",
-        resourceType: "organizer-application",
-        resourceId: updated.id,
-        cityId: updated.cityId,
-        oldValue: { status: existing.status },
-        newValue: { status: updated.status, reviewNotes: updated.reviewNotes },
-      },
+    await writeAuditLog(prisma, {
+      actorId: auth.user.id,
+      action: "organizer-application.reviewed",
+      resourceType: "organizer-application",
+      resourceId: updated.id,
+      cityId: updated.cityId,
+      oldValue: { status: existing.status },
+      newValue: { status: updated.status, reviewNotes: updated.reviewNotes },
     });
 
     return jsonResponse(
@@ -1300,6 +1391,15 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       },
     });
 
+    await writeAuditLog(prisma, {
+      actorId: auth.user.id,
+      action: "organization.created",
+      resourceType: "organization",
+      resourceId: created.id,
+      cityId: created.cityId,
+      newValue: { name: created.name, status: created.status },
+    });
+
     return jsonResponse(
       201,
       { ok: true, organization: mapOrganizationPayload(created) },
@@ -1375,16 +1475,14 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       },
     });
 
-    await prisma.auditLog.create({
-      data: {
-        actorId: auth.user.id,
-        action: "organization.reviewed",
-        resourceType: "organization",
-        resourceId: updated.id,
-        cityId: updated.cityId,
-        oldValue: { status: existing.status },
-        newValue: { status: updated.status, reviewNotes: updated.reviewNotes },
-      },
+    await writeAuditLog(prisma, {
+      actorId: auth.user.id,
+      action: "organization.reviewed",
+      resourceType: "organization",
+      resourceId: updated.id,
+      cityId: updated.cityId,
+      oldValue: { status: existing.status },
+      newValue: { status: updated.status, reviewNotes: updated.reviewNotes },
     });
 
     return jsonResponse(
@@ -1492,6 +1590,15 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       },
     });
 
+    await writeAuditLog(prisma, {
+      actorId: auth.user.id,
+      action: "tournament.created",
+      resourceType: "tournament",
+      resourceId: created.id,
+      cityId: created.cityId,
+      newValue: { name: created.name, season: created.season, status: created.status },
+    });
+
     return jsonResponse(201, { ok: true, tournament: mapTournamentPayload(created) }, authHeaders);
   }
 
@@ -1556,16 +1663,14 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       },
     });
 
-    await prisma.auditLog.create({
-      data: {
-        actorId: auth.user.id,
-        action: "tournament.status.updated",
-        resourceType: "tournament",
-        resourceId: updated.id,
-        cityId: updated.cityId,
-        oldValue: { status: existing.status },
-        newValue: { status: updated.status },
-      },
+    await writeAuditLog(prisma, {
+      actorId: auth.user.id,
+      action: "tournament.status.updated",
+      resourceType: "tournament",
+      resourceId: updated.id,
+      cityId: updated.cityId,
+      oldValue: { status: existing.status },
+      newValue: { status: updated.status },
     });
 
     if (nextStatus === TournamentStatus.FIXTURES_PUBLISHED) {
@@ -1716,6 +1821,15 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       },
     });
 
+    await writeAuditLog(prisma, {
+      actorId: auth.user.id,
+      action: "team.created",
+      resourceType: "team",
+      resourceId: created.id,
+      cityId: tournament.cityId,
+      newValue: { name: created.name, shortName: created.shortName, status: created.status },
+    });
+
     return jsonResponse(201, { ok: true, team: mapTeamPayload(created) }, authHeaders);
   }
 
@@ -1788,16 +1902,14 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       },
     });
 
-    await prisma.auditLog.create({
-      data: {
-        actorId: auth.user.id,
-        action: "team.reviewed",
-        resourceType: "team",
-        resourceId: updated.id,
-        cityId: existing.tournament.cityId,
-        oldValue: { status: existing.status },
-        newValue: { status: updated.status, reviewNotes: updated.reviewNotes },
-      },
+    await writeAuditLog(prisma, {
+      actorId: auth.user.id,
+      action: "team.reviewed",
+      resourceType: "team",
+      resourceId: updated.id,
+      cityId: existing.tournament.cityId,
+      oldValue: { status: existing.status },
+      newValue: { status: updated.status, reviewNotes: updated.reviewNotes },
     });
     if (nextStatus === TeamStatus.APPROVED || nextStatus === TeamStatus.REJECTED) {
       await dispatchNotification(
@@ -1938,6 +2050,19 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       },
     });
 
+    const playerTeam = await prisma.team.findUnique({
+      where: { id: created.teamId },
+      select: { tournament: { select: { cityId: true } } },
+    });
+    await writeAuditLog(prisma, {
+      actorId: auth.user.id,
+      action: "player.created",
+      resourceType: "player",
+      resourceId: created.id,
+      cityId: playerTeam?.tournament.cityId ?? null,
+      newValue: { fullName: created.fullName, position: created.position, status: created.status },
+    });
+
     return jsonResponse(201, { ok: true, player: mapPlayerPayload(created) }, authHeaders);
   }
 
@@ -2010,16 +2135,14 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       },
     });
 
-    await prisma.auditLog.create({
-      data: {
-        actorId: auth.user.id,
-        action: "player.reviewed",
-        resourceType: "player",
-        resourceId: updated.id,
-        cityId,
-        oldValue: { status: existing.status },
-        newValue: { status: updated.status, reviewNotes: updated.reviewNotes },
-      },
+    await writeAuditLog(prisma, {
+      actorId: auth.user.id,
+      action: "player.reviewed",
+      resourceType: "player",
+      resourceId: updated.id,
+      cityId,
+      oldValue: { status: existing.status },
+      newValue: { status: updated.status, reviewNotes: updated.reviewNotes },
     });
     if (nextStatus === PlayerStatus.APPROVED || nextStatus === PlayerStatus.DISQUALIFIED) {
       await dispatchNotification(
@@ -2149,6 +2272,20 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       },
     });
 
+    await writeAuditLog(prisma, {
+      actorId: auth.user.id,
+      action: "fixture.created",
+      resourceType: "fixture",
+      resourceId: created.id,
+      cityId: tournament.cityId,
+      newValue: {
+        homeTeamId: created.homeTeamId,
+        awayTeamId: created.awayTeamId,
+        matchday: created.matchday,
+        venue: created.venue,
+      },
+    });
+
     return jsonResponse(201, { ok: true, fixture: mapFixturePayload(created) }, authHeaders);
   }
 
@@ -2242,6 +2379,15 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       ),
     );
 
+    await writeAuditLog(prisma, {
+      actorId: auth.user.id,
+      action: "fixtures.generated",
+      resourceType: "tournament",
+      resourceId: tournament.id,
+      cityId: tournament.cityId,
+      newValue: { fixtureCount: created.length, groupId: parsed.data.groupId ?? null },
+    });
+
     return jsonResponse(201, { ok: true, fixtures: created.map(mapFixturePayload) }, authHeaders);
   }
 
@@ -2262,6 +2408,19 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         stage: true,
         homeTeamId: true,
         awayTeamId: true,
+        match: {
+          select: {
+            homeScore: true,
+            awayScore: true,
+            halfTimeHome: true,
+            halfTimeAway: true,
+            extraTimeHome: true,
+            extraTimeAway: true,
+            penaltyHome: true,
+            penaltyAway: true,
+            notes: true,
+          },
+        },
         tournament: { select: { cityId: true } },
       },
     });
@@ -2348,18 +2507,29 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       await maybeAdvanceKnockout(fixture.id);
     }
 
-    await prisma.auditLog.create({
-      data: {
-        actorId: auth.user.id,
-        action: "match.result.recorded",
-        resourceType: "fixture",
-        resourceId: fixture.id,
-        cityId: fixture.tournament.cityId,
-        newValue: {
-          homeScore: parsed.data.homeScore,
-          awayScore: parsed.data.awayScore,
-          goalsTrackedTeams: [...eventStats.teamGoals.keys()],
-        },
+    await writeAuditLog(prisma, {
+      actorId: auth.user.id,
+      action: "match.result.recorded",
+      resourceType: "fixture",
+      resourceId: fixture.id,
+      cityId: fixture.tournament.cityId,
+      oldValue: fixture.match
+        ? {
+            homeScore: fixture.match.homeScore,
+            awayScore: fixture.match.awayScore,
+            halfTimeHome: fixture.match.halfTimeHome,
+            halfTimeAway: fixture.match.halfTimeAway,
+            extraTimeHome: fixture.match.extraTimeHome,
+            extraTimeAway: fixture.match.extraTimeAway,
+            penaltyHome: fixture.match.penaltyHome,
+            penaltyAway: fixture.match.penaltyAway,
+            notes: fixture.match.notes,
+          }
+        : { match: null },
+      newValue: {
+        homeScore: parsed.data.homeScore,
+        awayScore: parsed.data.awayScore,
+        goalsTrackedTeams: [...eventStats.teamGoals.keys()],
       },
     });
 
@@ -2556,18 +2726,16 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       },
     });
 
-    await prisma.auditLog.create({
-      data: {
-        actorId: auth.user.id,
-        action: "award.assigned",
-        resourceType: "award",
-        resourceId: award.id,
-        cityId: tournament.cityId,
-        newValue: {
-          recipientType: parsed.data.recipientType,
-          teamId: parsed.data.teamId ?? null,
-          playerId: parsed.data.playerId ?? null,
-        },
+    await writeAuditLog(prisma, {
+      actorId: auth.user.id,
+      action: "award.assigned",
+      resourceType: "award",
+      resourceId: award.id,
+      cityId: tournament.cityId,
+      newValue: {
+        recipientType: parsed.data.recipientType,
+        teamId: parsed.data.teamId ?? null,
+        playerId: parsed.data.playerId ?? null,
       },
     });
 
@@ -2596,14 +2764,12 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         availability: parsed.data.availability,
       },
     });
-    await prisma.auditLog.create({
-      data: {
-        actorId: auth.user?.id ?? null,
-        action: "volunteer.application.submitted",
-        resourceType: "volunteer_application",
-        resourceId: application.id,
-        cityId: city.id,
-      },
+    await writeAuditLog(prisma, {
+      actorId: auth.user?.id ?? null,
+      action: "volunteer.application.submitted",
+      resourceType: "volunteer_application",
+      resourceId: application.id,
+      cityId: city.id,
     });
     return jsonResponse(201, { ok: true, application }, authHeaders);
   }
@@ -2713,16 +2879,14 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       },
       getEmailTransport(),
     );
-    await prisma.auditLog.create({
-      data: {
-        actorId: auth.user.id,
-        action: "volunteer.application.reviewed",
-        resourceType: "volunteer_application",
-        resourceId: id,
-        cityId: application.cityId,
-        oldValue: { status: application.status },
-        newValue: { status, tournamentId: parsed.data.tournamentId ?? null },
-      },
+    await writeAuditLog(prisma, {
+      actorId: auth.user.id,
+      action: "volunteer.application.reviewed",
+      resourceType: "volunteer_application",
+      resourceId: id,
+      cityId: application.cityId,
+      oldValue: { status: application.status },
+      newValue: { status, tournamentId: parsed.data.tournamentId ?? null },
     });
     return jsonResponse(200, { ok: true, application: updated }, authHeaders);
   }
@@ -2767,6 +2931,11 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       return jsonResponse(404, { ok: false, error: "Tournament not found" }, authHeaders);
     if (!(await canAccessCityOperations(auth.user, auth.assignments, tournament.cityId)))
       return jsonResponse(403, { ok: false, error: "Forbidden" }, authHeaders);
+    const existingRequirement = await prisma.volunteerRequirement.findUnique({
+      where: {
+        tournamentId_role: { tournamentId: parsed.data.tournamentId, role: parsed.data.role },
+      },
+    });
     const requirement = await prisma.volunteerRequirement.upsert({
       where: {
         tournamentId_role: { tournamentId: parsed.data.tournamentId, role: parsed.data.role },
@@ -2774,15 +2943,16 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       update: { requiredCount: parsed.data.requiredCount },
       create: parsed.data,
     });
-    await prisma.auditLog.create({
-      data: {
-        actorId: auth.user.id,
-        action: "volunteer.requirement.updated",
-        resourceType: "volunteer_requirement",
-        resourceId: requirement.id,
-        cityId: tournament.cityId,
-        newValue: { role: requirement.role, requiredCount: requirement.requiredCount },
-      },
+    await writeAuditLog(prisma, {
+      actorId: auth.user.id,
+      action: "volunteer.requirement.updated",
+      resourceType: "volunteer_requirement",
+      resourceId: requirement.id,
+      cityId: tournament.cityId,
+      oldValue: existingRequirement
+        ? { role: existingRequirement.role, requiredCount: existingRequirement.requiredCount }
+        : { requirement: null },
+      newValue: { role: requirement.role, requiredCount: requirement.requiredCount },
     });
     return jsonResponse(200, { ok: true, requirement }, authHeaders);
   }
@@ -2815,15 +2985,13 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       });
       return created;
     });
-    await prisma.auditLog.create({
-      data: {
-        actorId: auth.user.id,
-        action: "volunteer.checked_in",
-        resourceType: "volunteer",
-        resourceId: volunteerId,
-        cityId: volunteer.cityId,
-        newValue: { checkInId: checkIn.id },
-      },
+    await writeAuditLog(prisma, {
+      actorId: auth.user.id,
+      action: "volunteer.checked_in",
+      resourceType: "volunteer",
+      resourceId: volunteerId,
+      cityId: volunteer.cityId,
+      newValue: { checkInId: checkIn.id },
     });
     return jsonResponse(201, { ok: true, checkIn }, authHeaders);
   }
@@ -2908,14 +3076,12 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         ),
       ),
     );
-    await prisma.auditLog.create({
-      data: {
-        actorId: auth.user?.id ?? null,
-        action: "sponsorship.enquiry.submitted",
-        resourceType: "sponsorship_enquiry",
-        resourceId: enquiry.id,
-        cityId: city.id,
-      },
+    await writeAuditLog(prisma, {
+      actorId: auth.user?.id ?? null,
+      action: "sponsorship.enquiry.submitted",
+      resourceType: "sponsorship_enquiry",
+      resourceId: enquiry.id,
+      cityId: city.id,
     });
     return jsonResponse(201, { ok: true, enquiry }, authHeaders);
   }
@@ -3006,13 +3172,17 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       },
       include: { sponsor: true },
     });
-    await prisma.auditLog.create({
-      data: {
-        actorId: auth.user.id,
-        action: "sponsorship.created",
-        resourceType: "sponsorship",
-        resourceId: sponsorship.id,
-        cityId: city.id,
+    await writeAuditLog(prisma, {
+      actorId: auth.user.id,
+      action: "sponsorship.created",
+      resourceType: "sponsorship",
+      resourceId: sponsorship.id,
+      cityId: city.id,
+      newValue: {
+        sponsorId: sponsor.id,
+        tier: sponsorship.tier,
+        isPublished: sponsorship.isPublished,
+        sortOrder: sponsorship.sortOrder,
       },
     });
     return jsonResponse(201, { ok: true, sponsorship }, authHeaders);
@@ -3057,15 +3227,23 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       },
       include: { sponsor: true },
     });
-    await prisma.auditLog.create({
-      data: {
-        actorId: auth.user.id,
-        action: "sponsorship.updated",
-        resourceType: "sponsorship",
-        resourceId: id,
-        cityId: existing.cityId,
-        oldValue: { isPublished: existing.isPublished, sortOrder: existing.sortOrder },
-        newValue: { isPublished: sponsorship.isPublished, sortOrder: sponsorship.sortOrder },
+    await writeAuditLog(prisma, {
+      actorId: auth.user.id,
+      action: "sponsorship.updated",
+      resourceType: "sponsorship",
+      resourceId: id,
+      cityId: existing.cityId,
+      oldValue: {
+        tournamentId: existing.tournamentId,
+        tier: existing.tier,
+        isPublished: existing.isPublished,
+        sortOrder: existing.sortOrder,
+      },
+      newValue: {
+        tournamentId: sponsorship.tournamentId,
+        tier: sponsorship.tier,
+        isPublished: sponsorship.isPublished,
+        sortOrder: sponsorship.sortOrder,
       },
     });
     return jsonResponse(200, { ok: true, sponsorship }, authHeaders);
@@ -3083,14 +3261,20 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
     if (!existing)
       return jsonResponse(404, { ok: false, error: "Sponsorship not found" }, authHeaders);
     await prisma.sponsorship.delete({ where: { id } });
-    await prisma.auditLog.create({
-      data: {
-        actorId: auth.user.id,
-        action: "sponsorship.deleted",
-        resourceType: "sponsorship",
-        resourceId: id,
-        cityId: existing.cityId,
+    await writeAuditLog(prisma, {
+      actorId: auth.user.id,
+      action: "sponsorship.deleted",
+      resourceType: "sponsorship",
+      resourceId: id,
+      cityId: existing.cityId,
+      oldValue: {
+        sponsorId: existing.sponsorId,
+        tournamentId: existing.tournamentId,
+        tier: existing.tier,
+        isPublished: existing.isPublished,
+        sortOrder: existing.sortOrder,
       },
+      newValue: { sponsorship: null },
     });
     return jsonResponse(200, { ok: true }, authHeaders);
   }
@@ -3149,14 +3333,16 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         publishedAt: status === ContentPublishStatus.PUBLISHED ? new Date() : null,
       },
     });
-    await prisma.auditLog.create({
-      data: {
-        actorId: auth.user.id,
-        action: "announcement.created",
-        resourceType: "announcement",
-        resourceId: announcement.id,
-        cityId: city.id,
-        newValue: { status },
+    await writeAuditLog(prisma, {
+      actorId: auth.user.id,
+      action: "announcement.created",
+      resourceType: "announcement",
+      resourceId: announcement.id,
+      cityId: city.id,
+      newValue: {
+        headline: announcement.headline,
+        category: announcement.category,
+        status,
       },
     });
     if (status === ContentPublishStatus.PUBLISHED) {
@@ -3216,16 +3402,14 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
             : null,
       },
     });
-    await prisma.auditLog.create({
-      data: {
-        actorId: auth.user.id,
-        action: "announcement.updated",
-        resourceType: "announcement",
-        resourceId: id,
-        cityId: announcement.cityId,
-        oldValue: { status: announcement.status },
-        newValue: { status },
-      },
+    await writeAuditLog(prisma, {
+      actorId: auth.user.id,
+      action: "announcement.updated",
+      resourceType: "announcement",
+      resourceId: id,
+      cityId: announcement.cityId,
+      oldValue: { status: announcement.status },
+      newValue: { status },
     });
     if (
       status === ContentPublishStatus.PUBLISHED &&
@@ -3256,16 +3440,14 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       where: { id },
       data: { status: ContentPublishStatus.ARCHIVED, publishedAt: null },
     });
-    await prisma.auditLog.create({
-      data: {
-        actorId: auth.user.id,
-        action: "announcement.archived",
-        resourceType: "announcement",
-        resourceId: id,
-        cityId: announcement.cityId,
-        oldValue: { status: announcement.status },
-        newValue: { status: archived.status },
-      },
+    await writeAuditLog(prisma, {
+      actorId: auth.user.id,
+      action: "announcement.archived",
+      resourceType: "announcement",
+      resourceId: id,
+      cityId: announcement.cityId,
+      oldValue: { status: announcement.status },
+      newValue: { status: archived.status },
     });
     return jsonResponse(200, { ok: true, announcement: archived }, authHeaders);
   }
@@ -3306,6 +3488,13 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       );
     }
     const result = await deliverQueuedEmailNotifications(prisma, transport);
+    await writeAuditLog(prisma, {
+      actorId: auth.user.id,
+      action: "notification.email_queue.delivered",
+      resourceType: "notification_email_queue",
+      resourceId: "queued-email-delivery",
+      newValue: result,
+    });
     return jsonResponse(200, { ok: true, ...result }, authHeaders);
   }
 
@@ -3366,14 +3555,13 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         description: parsed.data.description ?? null,
       },
     });
-    await prisma.auditLog.create({
-      data: {
-        actorId: auth.user.id,
-        action: "gallery.created",
-        resourceType: "gallery",
-        resourceId: gallery.id,
-        cityId: city.id,
-      },
+    await writeAuditLog(prisma, {
+      actorId: auth.user.id,
+      action: "gallery.created",
+      resourceType: "gallery",
+      resourceId: gallery.id,
+      cityId: city.id,
+      newValue: { title: gallery.title, description: gallery.description },
     });
     return jsonResponse(201, { ok: true, gallery }, authHeaders);
   }
@@ -3448,13 +3636,18 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         authHeaders,
       );
     }
-    await prisma.auditLog.create({
-      data: {
-        actorId: auth.user.id,
-        action: "gallery.media.uploaded",
-        resourceType: "media_file",
-        resourceId: media.id,
-        cityId: gallery.cityId,
+    await writeAuditLog(prisma, {
+      actorId: auth.user.id,
+      action: "gallery.media.uploaded",
+      resourceType: "media_file",
+      resourceId: media.id,
+      cityId: gallery.cityId,
+      newValue: {
+        fileName: media.fileName,
+        mimeType: media.mimeType,
+        caption: media.caption,
+        credit: media.credit,
+        isCover: media.isCover,
       },
     });
     await notifyCityAudience({
@@ -3505,14 +3698,20 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       );
     }
     await prisma.mediaFile.delete({ where: { id: media.id } });
-    await prisma.auditLog.create({
-      data: {
-        actorId: auth.user.id,
-        action: "gallery.media.deleted",
-        resourceType: "media_file",
-        resourceId: media.id,
-        cityId: media.gallery.cityId,
+    await writeAuditLog(prisma, {
+      actorId: auth.user.id,
+      action: "gallery.media.deleted",
+      resourceType: "media_file",
+      resourceId: media.id,
+      cityId: media.gallery.cityId,
+      oldValue: {
+        fileName: media.fileName,
+        mimeType: media.mimeType,
+        caption: media.caption,
+        credit: media.credit,
+        isCover: media.isCover,
       },
+      newValue: { mediaFile: null },
     });
     return jsonResponse(200, { ok: true }, authHeaders);
   }

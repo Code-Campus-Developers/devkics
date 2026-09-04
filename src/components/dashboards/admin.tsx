@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { SectionHeading, StatCard } from "@/components/devkics/brand";
 import { ApplicationQueue } from "./applications";
 import { AnnouncementManager } from "./announcements";
+import { ReportsManager } from "./reports";
 import { SponsorshipManager } from "./sponsorships";
 import { StatusDot } from "@/routes/index";
 import { Button } from "@/components/ui/button";
@@ -40,6 +41,9 @@ export function AdminDashboard() {
           </TabsTrigger>
           <TabsTrigger value="news" className="rounded-full">
             Newsroom
+          </TabsTrigger>
+          <TabsTrigger value="reports" className="rounded-full">
+            Reports
           </TabsTrigger>
           <TabsTrigger value="activity" className="rounded-full">
             Platform activity
@@ -151,6 +155,9 @@ export function AdminDashboard() {
         </TabsContent>
         <TabsContent value="news" className="mt-8">
           <AnnouncementManager />
+        </TabsContent>
+        <TabsContent value="reports" className="mt-8">
+          <ReportsManager />
         </TabsContent>
 
         <TabsContent value="activity" className="mt-8 space-y-4">

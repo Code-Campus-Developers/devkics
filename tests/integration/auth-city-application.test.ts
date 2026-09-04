@@ -109,6 +109,19 @@ describe("Phase 1 API integration", () => {
 
     const cookies = collectSetCookies(registerRes as Response);
     expect(cookies.length).toBeGreaterThan(0);
+    const registeredUser = await prisma.user.findUniqueOrThrow({
+      where: { email: "test@devkics.com" },
+    });
+    await expect(
+      prisma.auditLog.findFirst({
+        where: { action: "user.registered", resourceId: registeredUser.id },
+      }),
+    ).resolves.toMatchObject({
+      actorId: registeredUser.id,
+      resourceType: "user",
+      cityId: expect.any(String),
+      newValue: { role: "MANAGER", citySlug: "abuja" },
+    });
 
     const meReq = new Request("http://localhost:8080/api/auth/me", {
       method: "GET",

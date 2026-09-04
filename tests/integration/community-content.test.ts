@@ -334,6 +334,15 @@ describe("Phase 3 volunteer workflow", () => {
     );
     expect(create?.status).toBe(201);
     const { sponsorship } = (await create?.json()) as { sponsorship: { id: string } };
+    await expect(
+      prisma.auditLog.findFirst({
+        where: { action: "sponsorship.created", resourceId: sponsorship.id },
+      }),
+    ).resolves.toMatchObject({
+      actorId: admin.id,
+      cityId: city.id,
+      newValue: { tier: "OFFICIAL", isPublished: false, sortOrder: 0 },
+    });
     const update = await handleApiRequest(
       new Request(`http://localhost:8080/api/sponsorships/${sponsorship.id}`, {
         method: "PATCH",
