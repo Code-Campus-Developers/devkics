@@ -4,21 +4,17 @@ import { Camera, ClipboardList, Megaphone, Flag } from "lucide-react";
 import { PageHeader } from "@/components/devkics/brand";
 import { ApplicationForm } from "@/components/devkics/application-form";
 
+import { canonicalLink, seoMeta } from "@/lib/seo";
+
 export const Route = createFileRoute("/volunteer")({
   head: () => ({
-    meta: [
-      { title: "Volunteer with DevKics" },
-      {
-        name: "description",
-        content:
-          "Referee, shoot, report or coordinate on DevKics matchdays. Apply to volunteer with your city chapter.",
-      },
-      { property: "og:title", content: "Volunteer with DevKics" },
-      {
-        property: "og:description",
-        content: "Join the DevKics matchday crew — officiating, media, logistics and comms.",
-      },
-    ],
+    links: [canonicalLink("/volunteer")],
+    meta: seoMeta({
+      title: "Volunteer with DevKics",
+      description:
+        "Referee, shoot, report or coordinate on DevKics matchdays. Apply to volunteer with your city chapter.",
+      path: "/volunteer",
+    }),
   }),
   component: VolunteerPage,
 });

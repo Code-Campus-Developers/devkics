@@ -18,18 +18,17 @@ import {
 import { useDevKics } from "@/lib/devkics/store";
 import type { Role } from "@/lib/devkics/types";
 
+import { canonicalLink, seoMeta } from "@/lib/seo";
+
 export const Route = createFileRoute("/auth")({
   head: () => ({
-    meta: [
-      { title: "Sign in or Register — DevKics" },
-      {
-        name: "description",
-        content:
-          "Sign in to your DevKics account to manage your team, run your city tournament, or track your player profile.",
-      },
-      { property: "og:title", content: "Sign in or Register — DevKics" },
-      { property: "og:description", content: "Access your DevKics dashboard." },
-    ],
+    links: [canonicalLink("/auth")],
+    meta: seoMeta({
+      title: "Sign in or Register — DevKics",
+      description:
+        "Sign in to your DevKics account to manage your team, run your city tournament, or track your player profile.",
+      path: "/auth",
+    }),
   }),
   component: AuthPage,
 });

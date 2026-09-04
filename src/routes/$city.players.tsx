@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Search } from "lucide-react";
 import { useState } from "react";
 
-import { PageHeader, TeamCrest } from "@/components/devkics/brand";
+import { EmptyState, PageHeader, TeamCrest } from "@/components/devkics/brand";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -12,20 +12,22 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useDevKics } from "@/lib/devkics/store";
+import { canonicalLink, seoMeta } from "@/lib/seo";
 
 export const Route = createFileRoute("/$city/players")({
-  head: () => ({
-    meta: [
-      { title: "Players — DevKics Abuja" },
-      {
-        name: "description",
-        content:
-          "The full player registry for the DevKics Abuja Cup: engineers, designers and founders on the pitch.",
-      },
-      { property: "og:title", content: "Players — DevKics Abuja" },
-      { property: "og:description", content: "Every registered DevKics Abuja player." },
-    ],
-  }),
+  head: ({ params }) => {
+    const title = "Players — DevKics Abuja";
+    const description =
+      "The full player registry for the DevKics Abuja Cup: engineers, designers and founders on the pitch.";
+    return {
+      links: [canonicalLink(`/${params.city}/players`)],
+      meta: seoMeta({
+        title,
+        description,
+        path: `/${params.city}/players`,
+      }),
+    };
+  },
   component: PlayersPage,
 });
 
@@ -78,30 +80,45 @@ function PlayersPage() {
         </Select>
       </div>
 
-      <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {filtered.slice(0, 60).map((p) => {
-          const team = teams.find((t) => t.id === p.teamId);
-          return (
-            <div
-              key={p.id}
-              className="card-lift flex items-center gap-4 rounded-2xl border border-border bg-card p-4"
-            >
-              {team && <TeamCrest team={team} size="md" />}
-              <div className="min-w-0 flex-1">
-                <p className="truncate font-medium">{p.name}</p>
-                <p className="truncate text-xs text-muted-foreground">
-                  {p.position} · {p.role}
-                </p>
-                <p className="truncate text-xs text-muted-foreground">{team?.name}</p>
+      {filtered.length === 0 ? (
+        <div className="mt-8">
+          <EmptyState
+            title="No Players Found"
+            description={
+              query
+                ? `No players matched "${query}". Try adjusting your search query or position filter.`
+                : "No registered players found for this category."
+            }
+          />
+        </div>
+      ) : (
+        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {filtered.slice(0, 60).map((p) => {
+            const team = teams.find((t) => t.id === p.teamId);
+            return (
+              <div
+                key={p.id}
+                className="card-lift flex items-center gap-4 rounded-2xl border border-border bg-card p-4"
+              >
+                {team && <TeamCrest team={team} size="md" />}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium">{p.name}</p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {p.position} · {p.role}
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground">{team?.name}</p>
+                </div>
+                <div className="text-right">
+                  <p className="font-display text-lg font-bold">{p.goals}</p>
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                    goals
+                  </p>
+                </div>
               </div>
-              <div className="text-right">
-                <p className="font-display text-lg font-bold">{p.goals}</p>
-                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">goals</p>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

@@ -4,21 +4,17 @@ import { PageHeader } from "@/components/devkics/brand";
 import { ApplicationForm } from "@/components/devkics/application-form";
 import pitchTop from "@/assets/pitch-top.jpg";
 
+import { canonicalLink, seoMeta } from "@/lib/seo";
+
 export const Route = createFileRoute("/organize")({
   head: () => ({
-    meta: [
-      { title: "Become a City Organizer — DevKics" },
-      {
-        name: "description",
-        content:
-          "Launch DevKics in your city. Get the playbook, the platform and sponsorship support for your first season.",
-      },
-      { property: "og:title", content: "Become a City Organizer — DevKics" },
-      {
-        property: "og:description",
-        content: "Bring the DevKics tech football league to your city.",
-      },
-    ],
+    links: [canonicalLink("/organize")],
+    meta: seoMeta({
+      title: "Become a City Organizer — DevKics",
+      description:
+        "Launch DevKics in your city. Get the playbook, the platform and sponsorship support for your first season.",
+      path: "/organize",
+    }),
   }),
   component: OrganizePage,
 });
@@ -39,6 +35,8 @@ function OrganizePage() {
           alt="Aerial view of an astro turf pitch"
           width={1400}
           height={800}
+          fetchPriority="high"
+          decoding="async"
           className="absolute inset-0 size-full object-cover"
         />
         <div className="absolute inset-0 bg-[oklch(0.22_0.05_158/0.86)]" />

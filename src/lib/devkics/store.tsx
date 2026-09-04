@@ -488,6 +488,7 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
       return payload.fixtures;
     },
     staleTime: 10_000,
+    refetchInterval: 15_000,
     refetchOnWindowFocus: false,
     retry: false,
     enabled: !!activeTournamentId,
@@ -504,6 +505,7 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
       return payload.standings;
     },
     staleTime: 10_000,
+    refetchInterval: 15_000,
     refetchOnWindowFocus: false,
     retry: false,
     enabled: !!activeTournamentId,
@@ -928,7 +930,7 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
   }, [refreshDomain, refreshSession]);
 
   const teams = teamsQuery.isError ? seed.teams : (teamsQuery.data ?? []);
-  const players = playersQuery.isError ? seed.players : (playersQuery.data ?? []);
+  const players = playersQuery.isError || !playersQuery.data ? seed.players : playersQuery.data;
   const fixtures = fixturesQuery.isError ? seed.fixtures : (fixturesQuery.data ?? []);
 
   const value: StoreValue = {

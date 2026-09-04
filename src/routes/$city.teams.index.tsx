@@ -1,22 +1,22 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 
-import { PageHeader, TeamCrest } from "@/components/devkics/brand";
+import { EmptyState, PageHeader, TeamCrest } from "@/components/devkics/brand";
 import { useDevKics } from "@/lib/devkics/store";
 import { computeStandings } from "@/lib/devkics/standings";
+import { canonicalLink, seoMeta } from "@/lib/seo";
 
 export const Route = createFileRoute("/$city/teams/")({
-  head: () => ({
-    meta: [
-      { title: "Teams — DevKics Abuja" },
-      {
-        name: "description",
-        content:
-          "Meet the company and community teams competing in the DevKics Abuja Cup Season 1.",
-      },
-      { property: "og:title", content: "Teams — DevKics Abuja" },
-      { property: "og:description", content: "The eight sides of the DevKics Abuja Cup." },
-    ],
-  }),
+  head: ({ params }) => {
+    const name = params.city.charAt(0).toUpperCase() + params.city.slice(1);
+    return {
+      links: [canonicalLink(`/${params.city}/teams`)],
+      meta: seoMeta({
+        title: `Teams — DevKics ${name}`,
+        description: `Meet the company and community teams competing in DevKics ${name}.`,
+        path: `/${params.city}/teams`,
+      }),
+    };
+  },
   component: TeamsPage,
 });
 
@@ -30,8 +30,17 @@ function TeamsPage() {
       <PageHeader
         eyebrow="Season 1"
         title="Teams"
-        description="Eight sides drawn from Abuja's engineering, product and design community."
+        description="Sides drawn from the local engineering, product, and technology community."
       />
+
+      {teams.length === 0 && (
+        <div className="mt-10">
+          <EmptyState
+            title="No teams registered yet"
+            description="Team registration will appear here once organizations submit squads for this season."
+          />
+        </div>
+      )}
 
       <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
         {teams.map((team) => {

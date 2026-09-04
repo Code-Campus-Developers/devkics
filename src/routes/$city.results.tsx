@@ -1,21 +1,22 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { PageHeader } from "@/components/devkics/brand";
+import { EmptyState, PageHeader } from "@/components/devkics/brand";
 import { MatchRow } from "@/components/devkics/match";
 import { useDevKics } from "@/lib/devkics/store";
+import { canonicalLink, seoMeta } from "@/lib/seo";
 
 export const Route = createFileRoute("/$city/results")({
-  head: () => ({
-    meta: [
-      { title: "Results — DevKics Abuja" },
-      {
-        name: "description",
-        content: "Final scores from every completed DevKics Abuja Cup matchday.",
-      },
-      { property: "og:title", content: "Results — DevKics Abuja" },
-      { property: "og:description", content: "All completed DevKics Abuja Cup results." },
-    ],
-  }),
+  head: ({ params }) => {
+    const name = params.city.charAt(0).toUpperCase() + params.city.slice(1);
+    return {
+      links: [canonicalLink(`/${params.city}/results`)],
+      meta: seoMeta({
+        title: `Results — DevKics ${name}`,
+        description: `Final scores from every completed DevKics ${name} matchday.`,
+        path: `/${params.city}/results`,
+      }),
+    };
+  },
   component: ResultsPage,
 });
 
@@ -34,7 +35,12 @@ function ResultsPage() {
       />
 
       {played.length === 0 && (
-        <p className="mt-10 text-muted-foreground">No matches have been played yet.</p>
+        <div className="mt-10">
+          <EmptyState
+            title="No match results yet"
+            description="Scores and match event statistics will appear here as soon as matches are played and confirmed."
+          />
+        </div>
       )}
 
       <div className="mt-10 space-y-12">

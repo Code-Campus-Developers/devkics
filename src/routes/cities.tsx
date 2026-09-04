@@ -2,27 +2,22 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { Search } from "lucide-react";
 import { useState } from "react";
 
-import { PageHeader } from "@/components/devkics/brand";
+import { EmptyState, PageHeader } from "@/components/devkics/brand";
 import { StatusDot } from "@/routes/index";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cities } from "@/lib/devkics/seed";
+import { canonicalLink, seoMeta } from "@/lib/seo";
 
 export const Route = createFileRoute("/cities")({
   head: () => ({
-    meta: [
-      { title: "Find a City — DevKics" },
-      {
-        name: "description",
-        content:
-          "Browse DevKics cities worldwide. Join a live league, get on a waitlist, or apply to open a new chapter.",
-      },
-      { property: "og:title", content: "Find a City — DevKics" },
-      {
-        property: "og:description",
-        content: "Browse DevKics cities worldwide and join your local tech football league.",
-      },
-    ],
+    links: [canonicalLink("/cities")],
+    meta: seoMeta({
+      title: "Find a City — DevKics",
+      description:
+        "Browse DevKics cities worldwide. Join a live league, get on a waitlist, or apply to open a new chapter.",
+      path: "/cities",
+    }),
   }),
   component: CitiesPage,
 });
@@ -103,13 +98,17 @@ function CitiesPage() {
       </div>
 
       {filtered.length === 0 && (
-        <p className="mt-16 text-center text-muted-foreground">
-          No city matches “{query}”. Want to start one?{" "}
-          <Link to="/organize" className="font-medium text-primary hover:underline">
-            Apply here
-          </Link>
-          .
-        </p>
+        <div className="mt-12">
+          <EmptyState
+            title={`No city found for "${query}"`}
+            description="Want to start a league in your city? You can apply to become a chapter organizer."
+            action={
+              <Button asChild className="rounded-full">
+                <Link to="/organize">Apply to organize</Link>
+              </Button>
+            }
+          />
+        </div>
       )}
     </div>
   );

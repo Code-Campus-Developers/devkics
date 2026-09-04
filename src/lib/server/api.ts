@@ -51,12 +51,16 @@ import { getEmailTransport } from "./email-transport";
 import { deleteGalleryMedia, publicGalleryUrl, uploadGalleryMedia } from "./supabase-storage";
 import { writeAuditLog } from "./audit-log";
 import { buildReport, reportTypes, toCsv, toExcelXml, toPdf } from "./reports";
+import { generateSitemapXml } from "./sitemap";
 
 type Json = Record<string, unknown>;
 
 function jsonResponse(status: number, data: Json, headers?: HeadersInit) {
   const responseHeaders = new Headers(headers);
   responseHeaders.set("content-type", "application/json; charset=utf-8");
+  if (!responseHeaders.has("cache-control")) {
+    responseHeaders.set("cache-control", "no-store, no-cache, must-revalidate, private");
+  }
   return new Response(JSON.stringify(data), {
     status,
     headers: responseHeaders,
@@ -868,6 +872,29 @@ async function maybeAdvanceKnockout(fixtureId: string) {
 
 export async function handleApiRequest(request: Request): Promise<Response | null> {
   const url = new URL(request.url);
+
+  if (request.method === "GET" && url.pathname === "/sitemap.xml") {
+    const xml = await generateSitemapXml(prisma);
+    return new Response(xml, {
+      status: 200,
+      headers: {
+        "content-type": "application/xml; charset=utf-8",
+        "cache-control": "public, max-age=3600, stale-while-revalidate=86400",
+      },
+    });
+  }
+
+  if (request.method === "GET" && url.pathname === "/robots.txt") {
+    const robots = `User-agent: *\nAllow: /\nDisallow: /dashboard\nDisallow: /api/\n\nSitemap: https://devkics.com/sitemap.xml\n`;
+    return new Response(robots, {
+      status: 200,
+      headers: {
+        "content-type": "text/plain; charset=utf-8",
+        "cache-control": "public, max-age=3600, stale-while-revalidate=86400",
+      },
+    });
+  }
+
   if (!url.pathname.startsWith("/api/")) return null;
   const clientIp = getClientIp(request);
 
@@ -1132,7 +1159,9 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
   // cities
   if (request.method === "GET" && url.pathname === "/api/cities") {
     const cities = await prisma.city.findMany({ orderBy: { name: "asc" } });
-    return jsonResponse(200, { ok: true, cities: cities.map(mapCityPayload) }, authHeaders);
+    const headers = new Headers(authHeaders);
+    headers.set("cache-control", "public, max-age=60, stale-while-revalidate=120");
+    return jsonResponse(200, { ok: true, cities: cities.map(mapCityPayload) }, headers);
   }
 
   if (request.method === "PATCH" && url.pathname.startsWith("/api/cities/")) {
@@ -1607,10 +1636,12 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       ? await prisma.tournament.findMany({ ...tournamentQuery, where })
       : await prisma.tournament.findMany(tournamentQuery);
 
+    const headers = new Headers(authHeaders);
+    headers.set("cache-control", "public, max-age=30, stale-while-revalidate=60");
     return jsonResponse(
       200,
       { ok: true, tournaments: tournaments.map(mapTournamentPayload) },
-      authHeaders,
+      headers,
     );
   }
 
@@ -2291,7 +2322,9 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       orderBy: [{ matchday: "asc" }, { kickoffAt: "asc" }],
     });
 
-    return jsonResponse(200, { ok: true, fixtures: fixtures.map(mapFixturePayload) }, authHeaders);
+    const headers = new Headers(authHeaders);
+    headers.set("cache-control", "public, max-age=10, stale-while-revalidate=30");
+    return jsonResponse(200, { ok: true, fixtures: fixtures.map(mapFixturePayload) }, headers);
   }
 
   if (request.method === "POST" && url.pathname === "/api/fixtures") {
@@ -2683,7 +2716,9 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       orderBy: [{ groupId: "asc" }, { rank: "asc" }],
     });
 
-    return jsonResponse(200, { ok: true, standings }, authHeaders);
+    const headers = new Headers(authHeaders);
+    headers.set("cache-control", "public, max-age=10, stale-while-revalidate=30");
+    return jsonResponse(200, { ok: true, standings }, headers);
   }
 
   if (request.method === "GET" && url.pathname === "/api/knockout") {
@@ -3402,6 +3437,12 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       include: { author: { select: { name: true } } },
       orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
     });
+    const headers = new Headers(authHeaders);
+    if (!isScopedOperator) {
+      headers.set("cache-control", "public, max-age=30, stale-while-revalidate=60");
+    } else {
+      headers.set("cache-control", "no-store, no-cache, must-revalidate, private");
+    }
     return jsonResponse(
       200,
       {
@@ -3411,7 +3452,7 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
           authorName: author?.name ?? null,
         })),
       },
-      authHeaders,
+      headers,
     );
   }
 
@@ -3628,6 +3669,8 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       include: { media: { orderBy: [{ isCover: "desc" }, { createdAt: "desc" }] } },
       orderBy: { createdAt: "desc" },
     });
+    const headers = new Headers(authHeaders);
+    headers.set("cache-control", "public, max-age=30, stale-while-revalidate=60");
     return jsonResponse(
       200,
       {
@@ -3640,7 +3683,7 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
           })),
         })),
       },
-      authHeaders,
+      headers,
     );
   }
 

@@ -7,22 +7,18 @@ import { Button } from "@/components/ui/button";
 import { news, tournaments } from "@/lib/devkics/seed";
 import { useDevKics } from "@/lib/devkics/store";
 
+import { canonicalLink, seoMeta } from "@/lib/seo";
+
 export const Route = createFileRoute("/$city/")({
   head: ({ params }) => {
     const name = params.city.charAt(0).toUpperCase() + params.city.slice(1);
     return {
-      meta: [
-        { title: `DevKics ${name} — City Portal` },
-        {
-          name: "description",
-          content: `Fixtures, results, standings, teams and news for the DevKics ${name} tech football league.`,
-        },
-        { property: "og:title", content: `DevKics ${name} — City Portal` },
-        {
-          property: "og:description",
-          content: `Everything happening in the DevKics ${name} season.`,
-        },
-      ],
+      links: [canonicalLink(`/${params.city}`)],
+      meta: seoMeta({
+        title: `DevKics ${name} — City Portal`,
+        description: `Fixtures, results, standings, teams and news for the DevKics ${name} tech football league.`,
+        path: `/${params.city}`,
+      }),
     };
   },
   component: CityOverview,

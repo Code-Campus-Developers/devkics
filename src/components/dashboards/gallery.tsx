@@ -171,6 +171,8 @@ export function GalleryManager() {
                     src={media.publicUrl}
                     alt={media.caption ?? media.fileName}
                     className="h-40 w-full object-cover"
+                    loading="lazy"
+                    decoding="async"
                   />
                   <figcaption className="space-y-2 p-3 text-xs text-muted-foreground">
                     <p>{media.caption ?? media.fileName}</p>

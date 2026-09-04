@@ -1,12 +1,14 @@
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { ArrowLeft } from "lucide-react";
 
-import { FormPill, TeamCrest } from "@/components/devkics/brand";
+import { FormPill, TeamCrest, EmptyState } from "@/components/devkics/brand";
 import { MatchRow } from "@/components/devkics/match";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { teams as seedTeams } from "@/lib/devkics/seed";
 import { useDevKics } from "@/lib/devkics/store";
 import { computeStandings } from "@/lib/devkics/standings";
+import { canonicalLink, seoMeta } from "@/lib/seo";
 
 export const Route = createFileRoute("/$city/teams/$teamId")({
   beforeLoad: ({ params }) => {
@@ -15,19 +17,15 @@ export const Route = createFileRoute("/$city/teams/$teamId")({
   },
   head: ({ params }) => {
     const team = seedTeams.find((t) => t.id === params.teamId);
+    const title = `${team?.name ?? "Team"} — DevKics Abuja`;
+    const description = `Squad list, fixtures and form for ${team?.name ?? "this team"} in the DevKics Abuja Cup.`;
     return {
-      meta: [
-        { title: `${team?.name ?? "Team"} — DevKics Abuja` },
-        {
-          name: "description",
-          content: `Squad list, fixtures and form for ${team?.name ?? "this team"} in the DevKics Abuja Cup.`,
-        },
-        { property: "og:title", content: `${team?.name ?? "Team"} — DevKics Abuja` },
-        {
-          property: "og:description",
-          content: `Squad, results and standing for ${team?.name ?? "this DevKics team"}.`,
-        },
-      ],
+      links: [canonicalLink(`/${params.city}/teams/${params.teamId}`)],
+      meta: seoMeta({
+        title,
+        description,
+        path: `/${params.city}/teams/${params.teamId}`,
+      }),
     };
   },
   component: TeamDetail,
@@ -39,7 +37,19 @@ function TeamDetail() {
   const team = teams.find((t) => t.id === teamId);
 
   if (!team) {
-    return <p className="text-muted-foreground">Team not found.</p>;
+    return (
+      <EmptyState
+        title="Team Not Found"
+        description="The team you are looking for does not exist or has not registered yet for this tournament edition."
+        action={
+          <Button asChild variant="outline" className="rounded-full">
+            <Link to="/$city/teams" params={{ city }}>
+              Back to teams
+            </Link>
+          </Button>
+        }
+      />
+    );
   }
 
   const squad = players.filter((p) => p.teamId === team.id);

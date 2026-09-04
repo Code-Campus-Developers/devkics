@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { PageHeader } from "@/components/devkics/brand";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { canonicalLink, seoMeta } from "@/lib/seo";
 
 type LegalTab = "terms" | "privacy" | "conduct" | "waiver" | "agreements";
 
@@ -18,20 +19,13 @@ export const Route = createFileRoute("/legal")({
     return { tab };
   },
   head: () => ({
-    meta: [
-      { title: "Legal, Privacy & Consent — DevKics" },
-      {
-        name: "description",
-        content:
-          "Official Terms of Use, Privacy Policy, Code of Conduct, Player Waiver, Media Consent, and Participant Agreements for DevKics.",
-      },
-      { property: "og:title", content: "Legal, Privacy & Consent — DevKics" },
-      {
-        property: "og:description",
-        content:
-          "DevKics governance, participant protection, privacy rules, and community standards.",
-      },
-    ],
+    links: [canonicalLink("/legal")],
+    meta: seoMeta({
+      title: "Legal, Privacy & Consent — DevKics",
+      description:
+        "Official Terms of Use, Privacy Policy, Code of Conduct, Player Waiver, Media Consent, and Participant Agreements for DevKics.",
+      path: "/legal",
+    }),
   }),
   component: LegalPage,
 });

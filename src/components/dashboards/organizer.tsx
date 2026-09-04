@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { SectionHeading, StatCard, TeamCrest } from "@/components/devkics/brand";
+import { LoadingSkeleton, SectionHeading, StatCard, TeamCrest } from "@/components/devkics/brand";
 import { StandingsTable } from "@/components/devkics/match";
 import { ApplicationQueue } from "./applications";
 import { AnnouncementManager } from "./announcements";
@@ -39,6 +39,7 @@ export function OrganizerDashboard() {
     loadingTournamentOps,
   } = useDevKics();
   const tournament = tournaments[0];
+
   const pending = applications.filter((a) => a.status === "pending" && a.kind !== "city-organizer");
   const pendingOrganizations = organizations.filter(
     (organization) =>
@@ -57,7 +58,12 @@ export function OrganizerDashboard() {
   );
 
   if (loadingTournamentOps) {
-    return <p className="text-sm text-muted-foreground">Loading tournament operations...</p>;
+    return (
+      <div className="space-y-8" role="status" aria-label="Loading tournament operations">
+        <LoadingSkeleton variant="stats" count={4} />
+        <LoadingSkeleton variant="cards" count={3} />
+      </div>
+    );
   }
 
   return (

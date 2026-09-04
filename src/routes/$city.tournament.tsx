@@ -5,20 +5,22 @@ import { StandingsTable } from "@/components/devkics/match";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useDevKics } from "@/lib/devkics/store";
+import { canonicalLink, seoMeta } from "@/lib/seo";
 
 export const Route = createFileRoute("/$city/tournament")({
-  head: () => ({
-    meta: [
-      { title: "Tournament Overview — DevKics Abuja Cup" },
-      {
-        name: "description",
-        content:
-          "Format, schedule, groups and rules for the DevKics Abuja Cup Season 1 tech football tournament.",
-      },
-      { property: "og:title", content: "Tournament Overview — DevKics Abuja Cup" },
-      { property: "og:description", content: "Format, groups and schedule for Season 1." },
-    ],
-  }),
+  head: ({ params }) => {
+    const title = "Tournament Overview — DevKics Abuja Cup";
+    const description =
+      "Format, schedule, groups and rules for the DevKics Abuja Cup Season 1 tech football tournament.";
+    return {
+      links: [canonicalLink(`/${params.city}/tournament`)],
+      meta: seoMeta({
+        title,
+        description,
+        path: `/${params.city}/tournament`,
+      }),
+    };
+  },
   component: TournamentPage,
 });
 

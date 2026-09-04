@@ -3,19 +3,20 @@ import { createFileRoute } from "@tanstack/react-router";
 import { PageHeader } from "@/components/devkics/brand";
 import { StandingsTable } from "@/components/devkics/match";
 import { useDevKics } from "@/lib/devkics/store";
+import { canonicalLink, seoMeta } from "@/lib/seo";
 
 export const Route = createFileRoute("/$city/standings")({
-  head: () => ({
-    meta: [
-      { title: "Standings — DevKics Abuja" },
-      {
-        name: "description",
-        content: "The live DevKics Abuja Cup league table, updated after every confirmed result.",
-      },
-      { property: "og:title", content: "Standings — DevKics Abuja" },
-      { property: "og:description", content: "Live league table for the DevKics Abuja Cup." },
-    ],
-  }),
+  head: ({ params }) => {
+    const name = params.city.charAt(0).toUpperCase() + params.city.slice(1);
+    return {
+      links: [canonicalLink(`/${params.city}/standings`)],
+      meta: seoMeta({
+        title: `Standings — DevKics ${name}`,
+        description: `The live DevKics ${name} league table, updated live after every confirmed result.`,
+        path: `/${params.city}/standings`,
+      }),
+    };
+  },
   component: StandingsPage,
 });
 

@@ -10,22 +10,17 @@ import { cities, tournaments } from "@/lib/devkics/seed";
 import { useDevKics } from "@/lib/devkics/store";
 import { computeStandings } from "@/lib/devkics/standings";
 
+import { canonicalLink, seoMeta } from "@/lib/seo";
+
 export const Route = createFileRoute("/")({
   head: () => ({
-    meta: [
-      { title: "DevKics — Where Tech Comes to Play" },
-      {
-        name: "description",
-        content:
-          "A global football league built for technology communities. Join a city, build a team, compete. Pilot season live in Abuja.",
-      },
-      { property: "og:title", content: "DevKics — Where Tech Comes to Play" },
-      {
-        property: "og:description",
-        content:
-          "A global football league built for technology communities. Pilot season live in Abuja.",
-      },
-    ],
+    links: [canonicalLink("/")],
+    meta: seoMeta({
+      title: "DevKics — Where Tech Comes to Play",
+      description:
+        "A global football league built for technology communities. Join a city, build a team, compete. Pilot season live in Abuja.",
+      path: "/",
+    }),
   }),
   component: Home,
 });
@@ -46,6 +41,8 @@ function Home() {
           alt="Five-a-side football match under floodlights in Abuja"
           width={1600}
           height={1008}
+          fetchPriority="high"
+          decoding="async"
           className="absolute inset-0 size-full object-cover"
         />
         <div className="absolute inset-0 bg-[oklch(0.19_0.04_158/0.82)]" />
@@ -258,6 +255,7 @@ function Home() {
             width={1400}
             height={900}
             loading="lazy"
+            decoding="async"
             className="h-64 w-full object-cover lg:h-full"
           />
           <div className="p-8 sm:p-12">

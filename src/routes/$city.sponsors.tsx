@@ -5,26 +5,28 @@ import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
-import { PageHeader } from "@/components/devkics/brand";
+import { ErrorState, LoadingSkeleton, PageHeader } from "@/components/devkics/brand";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { canonicalLink, seoMeta } from "@/lib/seo";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/$city/sponsors")({
-  head: () => ({
-    meta: [
-      { title: "Sponsors & Partners — DevKics Abuja" },
-      {
-        name: "description",
-        content:
-          "The headline, official and community partners powering the DevKics Abuja pilot season.",
-      },
-      { property: "og:title", content: "Sponsors & Partners — DevKics Abuja" },
-      { property: "og:description", content: "Partners behind the DevKics Abuja pilot season." },
-    ],
-  }),
+  head: ({ params }) => {
+    const title = "Sponsors & Partners — DevKics Abuja";
+    const description =
+      "The headline, official and community partners powering the DevKics Abuja pilot season.";
+    return {
+      links: [canonicalLink(`/${params.city}/sponsors`)],
+      meta: seoMeta({
+        title,
+        description,
+        path: `/${params.city}/sponsors`,
+      }),
+    };
+  },
   component: SponsorsPage,
 });
 
@@ -109,13 +111,17 @@ function SponsorsPage() {
       />
 
       <div className="mt-10 space-y-12">
-        {sponsorsQuery.isLoading && (
-          <p className="text-sm text-muted-foreground">Loading partners...</p>
-        )}
+        {sponsorsQuery.isLoading && <LoadingSkeleton variant="cards" count={3} />}
         {sponsorsQuery.isError && (
-          <p className="rounded-2xl border border-destructive/30 p-5 text-sm text-destructive">
-            Unable to load sponsors. Please refresh and try again.
-          </p>
+          <ErrorState
+            title="Unable to load sponsors"
+            description={
+              sponsorsQuery.error instanceof Error
+                ? sponsorsQuery.error.message
+                : "An error occurred while loading partner information."
+            }
+            onRetry={() => sponsorsQuery.refetch()}
+          />
         )}
         {!sponsorsQuery.isLoading &&
           !sponsorsQuery.isError &&

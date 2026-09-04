@@ -3,7 +3,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Trash2 } from "lucide-react";
 
-import { SectionHeading, StatCard, TeamCrest } from "@/components/devkics/brand";
+import { LoadingSkeleton, SectionHeading, StatCard, TeamCrest } from "@/components/devkics/brand";
 import { MatchRow } from "@/components/devkics/match";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,6 +33,7 @@ export function ManagerDashboard() {
     createTeam,
     addPlayer,
     removePlayer,
+    loadingTournamentOps,
   } = useDevKics();
   const team = teams.find(
     (t) => t.id === currentUser?.teamId || t.managerUserId === currentUser?.id,
@@ -56,6 +57,15 @@ export function ManagerDashboard() {
     role: "",
   });
   const [waiverConfirmed, setWaiverConfirmed] = useState(true);
+
+  if (loadingTournamentOps) {
+    return (
+      <div className="space-y-8" role="status" aria-label="Loading team dashboard">
+        <LoadingSkeleton variant="stats" count={4} />
+        <LoadingSkeleton variant="cards" count={2} />
+      </div>
+    );
+  }
 
   if (!team) {
     if (!approvedOrganization) {

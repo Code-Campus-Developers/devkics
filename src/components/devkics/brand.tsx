@@ -1,6 +1,9 @@
 import { Link } from "@tanstack/react-router";
-import type { ReactNode } from "react";
+import { AlertCircle, Inbox, RotateCcw } from "lucide-react";
+import type { ComponentType, ReactNode } from "react";
 
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import type { Team } from "@/lib/devkics/types";
 
@@ -179,5 +182,149 @@ export function FormPill({ result }: { result: string }) {
     >
       {result}
     </span>
+  );
+}
+
+export function EmptyState({
+  icon: Icon = Inbox,
+  title,
+  description,
+  action,
+  className,
+}: {
+  icon?: ComponentType<{ className?: string }>;
+  title: string;
+  description?: string;
+  action?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      role="status"
+      className={cn(
+        "flex flex-col items-center justify-center rounded-3xl border border-dashed border-border bg-card/50 p-8 text-center sm:p-12",
+        className,
+      )}
+    >
+      <div className="grid size-12 place-items-center rounded-2xl bg-muted text-muted-foreground">
+        <Icon className="size-6" />
+      </div>
+      <h3 className="mt-4 font-display text-lg font-bold text-foreground">{title}</h3>
+      {description && (
+        <p className="mt-1.5 max-w-sm text-sm text-muted-foreground">{description}</p>
+      )}
+      {action && <div className="mt-6">{action}</div>}
+    </div>
+  );
+}
+
+export function ErrorState({
+  title = "Unable to load data",
+  description = "Something went wrong while loading this section. Please try again.",
+  onRetry,
+  className,
+}: {
+  title?: string;
+  description?: string;
+  onRetry?: () => void;
+  className?: string;
+}) {
+  return (
+    <div
+      role="alert"
+      className={cn(
+        "flex flex-col items-center justify-center rounded-3xl border border-destructive/25 bg-destructive/[0.04] p-8 text-center sm:p-12",
+        className,
+      )}
+    >
+      <div className="grid size-12 place-items-center rounded-2xl bg-destructive/10 text-destructive">
+        <AlertCircle className="size-6" />
+      </div>
+      <h3 className="mt-4 font-display text-lg font-bold text-foreground">{title}</h3>
+      {description && (
+        <p className="mt-1.5 max-w-sm text-sm text-muted-foreground">{description}</p>
+      )}
+      {onRetry && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onRetry}
+          className="mt-6 rounded-full border-destructive/30 hover:bg-destructive/10"
+        >
+          <RotateCcw className="mr-2 size-3.5" />
+          Try again
+        </Button>
+      )}
+    </div>
+  );
+}
+
+export function LoadingSkeleton({
+  variant = "cards",
+  count = 3,
+  className,
+}: {
+  variant?: "cards" | "rows" | "stats" | "grid";
+  count?: number;
+  className?: string;
+}) {
+  if (variant === "stats") {
+    return (
+      <div
+        role="status"
+        aria-label="Loading statistics..."
+        className={cn("grid gap-4 sm:grid-cols-2 lg:grid-cols-4", className)}
+      >
+        {Array.from({ length: count }).map((_, i) => (
+          <div key={i} className="rounded-2xl border border-border bg-card p-5 space-y-3">
+            <Skeleton className="h-3 w-20" />
+            <Skeleton className="h-8 w-16" />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (variant === "rows") {
+    return (
+      <div role="status" aria-label="Loading items..." className={cn("space-y-3", className)}>
+        {Array.from({ length: count }).map((_, i) => (
+          <div
+            key={i}
+            className="flex items-center justify-between rounded-2xl border border-border bg-card p-4"
+          >
+            <div className="flex items-center gap-3">
+              <Skeleton className="size-10 rounded-xl" />
+              <div className="space-y-1.5">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-3 w-20" />
+              </div>
+            </div>
+            <Skeleton className="h-6 w-12 rounded-full" />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      role="status"
+      aria-label="Loading content..."
+      className={cn("grid gap-5 sm:grid-cols-2 lg:grid-cols-3", className)}
+    >
+      {Array.from({ length: count }).map((_, i) => (
+        <div key={i} className="rounded-3xl border border-border bg-card p-6 space-y-4">
+          <div className="flex items-center gap-3">
+            <Skeleton className="size-12 rounded-2xl" />
+            <div className="flex-1 space-y-2">
+              <Skeleton className="h-4 w-3/4" />
+              <Skeleton className="h-3 w-1/2" />
+            </div>
+          </div>
+          <Skeleton className="h-16 w-full rounded-xl" />
+        </div>
+      ))}
+    </div>
   );
 }

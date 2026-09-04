@@ -2,22 +2,26 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 
-import { PageHeader } from "@/components/devkics/brand";
+import { Newspaper } from "lucide-react";
+
+import { EmptyState, ErrorState, LoadingSkeleton, PageHeader } from "@/components/devkics/brand";
 import { Badge } from "@/components/ui/badge";
+import { canonicalLink, seoMeta } from "@/lib/seo";
 
 export const Route = createFileRoute("/$city/news")({
-  head: () => ({
-    meta: [
-      { title: "News & Announcements — DevKics Abuja" },
-      {
-        name: "description",
-        content:
-          "Matchday reports, announcements and community updates from the DevKics Abuja season.",
-      },
-      { property: "og:title", content: "News & Announcements — DevKics Abuja" },
-      { property: "og:description", content: "Latest updates from DevKics Abuja." },
-    ],
-  }),
+  head: ({ params }) => {
+    const title = "News & Announcements — DevKics Abuja";
+    const description =
+      "Matchday reports, announcements and community updates from the DevKics Abuja season.";
+    return {
+      links: [canonicalLink(`/${params.city}/news`)],
+      meta: seoMeta({
+        title,
+        description,
+        path: `/${params.city}/news`,
+      }),
+    };
+  },
   component: NewsPage,
 });
 
@@ -68,11 +72,17 @@ function NewsPage() {
       />
 
       <div className="mt-10 space-y-4">
-        {newsQuery.isLoading && <p className="text-sm text-muted-foreground">Loading news...</p>}
+        {newsQuery.isLoading && <LoadingSkeleton variant="cards" count={3} />}
         {newsQuery.isError && (
-          <p className="rounded-2xl border border-destructive/30 p-5 text-sm text-destructive">
-            Unable to load news. Please refresh and try again.
-          </p>
+          <ErrorState
+            title="Unable to load news"
+            description={
+              newsQuery.error instanceof Error
+                ? newsQuery.error.message
+                : "An error occurred while fetching the latest announcements."
+            }
+            onRetry={() => newsQuery.refetch()}
+          />
         )}
         {newsQuery.data?.map((item) => {
           const open = openId === item.id;
@@ -87,6 +97,7 @@ function NewsPage() {
                   alt=""
                   className="h-48 w-full object-cover"
                   loading="lazy"
+                  decoding="async"
                 />
               )}
               <button
@@ -122,9 +133,11 @@ function NewsPage() {
           );
         })}
         {!newsQuery.isLoading && !newsQuery.isError && newsQuery.data?.length === 0 && (
-          <p className="rounded-2xl border border-dashed border-border p-6 text-sm text-muted-foreground">
-            No announcements have been published yet.
-          </p>
+          <EmptyState
+            icon={Newspaper}
+            title="No Announcements Yet"
+            description="Matchday reports, tournament schedules, and community news will be published here soon."
+          />
         )}
       </div>
     </div>
