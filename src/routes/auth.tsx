@@ -1,9 +1,10 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Logo } from "@/components/devkics/brand";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -44,6 +45,7 @@ function AuthPage() {
   const { login, register, currentUser, bootstrapped } = useDevKics();
   const navigate = useNavigate();
   const [signIn, setSignIn] = useState({ email: "", password: "" });
+  const [acceptedTerms, setAcceptedTerms] = useState(true);
   const [signUp, setSignUp] = useState({
     name: "",
     email: "",
@@ -151,8 +153,14 @@ function AuthPage() {
               className="space-y-5"
               onSubmit={async (e) => {
                 e.preventDefault();
+                if (!acceptedTerms) {
+                  toast.error(
+                    "You must agree to the Terms of Use, Privacy Policy, and Code of Conduct",
+                  );
+                  return;
+                }
                 try {
-                  const user = await register(signUp);
+                  const user = await register({ ...signUp, acceptedTerms });
                   if (!user) {
                     toast.error("Registration failed");
                     return;
@@ -211,6 +219,46 @@ function AuthPage() {
                     <SelectItem value="organizer">City organizer</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+              <div className="flex items-start space-x-3 pt-1">
+                <Checkbox
+                  id="register-terms"
+                  checked={acceptedTerms}
+                  onCheckedChange={(checked) => setAcceptedTerms(checked === true)}
+                />
+                <Label
+                  htmlFor="register-terms"
+                  className="text-xs font-normal leading-relaxed text-muted-foreground"
+                >
+                  I agree to the{" "}
+                  <Link
+                    to="/legal"
+                    search={{ tab: "terms" }}
+                    target="_blank"
+                    className="font-medium text-foreground underline underline-offset-2 hover:text-primary"
+                  >
+                    Terms of Use
+                  </Link>
+                  ,{" "}
+                  <Link
+                    to="/legal"
+                    search={{ tab: "privacy" }}
+                    target="_blank"
+                    className="font-medium text-foreground underline underline-offset-2 hover:text-primary"
+                  >
+                    Privacy Policy
+                  </Link>
+                  , and{" "}
+                  <Link
+                    to="/legal"
+                    search={{ tab: "conduct" }}
+                    target="_blank"
+                    className="font-medium text-foreground underline underline-offset-2 hover:text-primary"
+                  >
+                    Code of Conduct
+                  </Link>
+                  .
+                </Label>
               </div>
               <Button type="submit" size="lg" className="w-full rounded-full">
                 Create account

@@ -14,6 +14,7 @@ import { Route as CityRouteImport } from './routes/$city'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as CitiesRouteImport } from './routes/cities'
 import { Route as DashboardRouteImport } from './routes/dashboard'
+import { Route as LegalRouteImport } from './routes/legal'
 import { Route as OrganizeRouteImport } from './routes/organize'
 import { Route as VolunteerRouteImport } from './routes/volunteer'
 import { Route as CityIndexRouteImport } from './routes/$city.index'
@@ -52,6 +53,11 @@ const CitiesRoute = CitiesRouteImport.update({
 const DashboardRoute = DashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LegalRoute = LegalRouteImport.update({
+  id: '/legal',
+  path: '/legal',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OrganizeRoute = OrganizeRouteImport.update({
@@ -131,6 +137,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/cities': typeof CitiesRoute
   '/dashboard': typeof DashboardRoute
+  '/legal': typeof LegalRoute
   '/organize': typeof OrganizeRoute
   '/volunteer': typeof VolunteerRoute
   '/$city/fixtures': typeof CityFixturesRoute
@@ -151,6 +158,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/cities': typeof CitiesRoute
   '/dashboard': typeof DashboardRoute
+  '/legal': typeof LegalRoute
   '/organize': typeof OrganizeRoute
   '/volunteer': typeof VolunteerRoute
   '/$city/fixtures': typeof CityFixturesRoute
@@ -172,6 +180,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/cities': typeof CitiesRoute
   '/dashboard': typeof DashboardRoute
+  '/legal': typeof LegalRoute
   '/organize': typeof OrganizeRoute
   '/volunteer': typeof VolunteerRoute
   '/$city/fixtures': typeof CityFixturesRoute
@@ -195,6 +204,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/cities'
     | '/dashboard'
+    | '/legal'
     | '/organize'
     | '/volunteer'
     | '/$city/fixtures'
@@ -215,6 +225,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/cities'
     | '/dashboard'
+    | '/legal'
     | '/organize'
     | '/volunteer'
     | '/$city/fixtures'
@@ -235,6 +246,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/cities'
     | '/dashboard'
+    | '/legal'
     | '/organize'
     | '/volunteer'
     | '/$city/fixtures'
@@ -257,6 +269,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   CitiesRoute: typeof CitiesRoute
   DashboardRoute: typeof DashboardRoute
+  LegalRoute: typeof LegalRoute
   OrganizeRoute: typeof OrganizeRoute
   VolunteerRoute: typeof VolunteerRoute
 }
@@ -296,6 +309,13 @@ declare module '@tanstack/react-router' {
       path: '/dashboard'
       fullPath: '/dashboard'
       preLoaderRoute: typeof DashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/legal': {
+      id: '/legal'
+      path: '/legal'
+      fullPath: '/legal'
+      preLoaderRoute: typeof LegalRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/organize': {
@@ -447,6 +467,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   CitiesRoute: CitiesRoute,
   DashboardRoute: DashboardRoute,
+  LegalRoute: LegalRoute,
   OrganizeRoute: OrganizeRoute,
   VolunteerRoute: VolunteerRoute,
 }

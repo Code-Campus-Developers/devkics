@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Trash2 } from "lucide-react";
@@ -6,6 +7,7 @@ import { SectionHeading, StatCard, TeamCrest } from "@/components/devkics/brand"
 import { MatchRow } from "@/components/devkics/match";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -53,6 +55,7 @@ export function ManagerDashboard() {
     number: "",
     role: "",
   });
+  const [waiverConfirmed, setWaiverConfirmed] = useState(true);
 
   if (!team) {
     if (!approvedOrganization) {
@@ -208,6 +211,12 @@ export function ManagerDashboard() {
       toast.error("Enter a player name");
       return;
     }
+    if (status === "active" && !waiverConfirmed) {
+      toast.error(
+        "Player must have confirmed acceptance of the Participation Waiver & Media Consent",
+      );
+      return;
+    }
     addPlayer({
       teamId: team.id,
       name: newPlayer.name,
@@ -303,6 +312,28 @@ export function ManagerDashboard() {
                   placeholder="Backend Engineer"
                 />
               </div>
+            </div>
+            <div className="mt-4 flex items-start space-x-3">
+              <Checkbox
+                id="manager-player-waiver"
+                checked={waiverConfirmed}
+                onCheckedChange={(c) => setWaiverConfirmed(c === true)}
+              />
+              <Label
+                htmlFor="manager-player-waiver"
+                className="text-xs font-normal leading-relaxed text-muted-foreground"
+              >
+                Player has signed and accepted the{" "}
+                <Link
+                  to="/legal"
+                  search={{ tab: "waiver" }}
+                  target="_blank"
+                  className="font-medium text-foreground underline underline-offset-2 hover:text-primary"
+                >
+                  Player Participation Waiver & Media Consent
+                </Link>
+                .
+              </Label>
             </div>
             <div className="mt-5 flex gap-3">
               <Button className="rounded-full px-6" onClick={() => submitPlayer("active")}>

@@ -205,9 +205,9 @@ export function SiteFooter() {
   return (
     <footer className="surface-pitch mt-24">
       <div className="mx-auto grid max-w-6xl gap-10 px-5 py-14 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="sm:col-span-2">
+        <div>
           <Logo variant="light" />
-          <p className="mt-4 max-w-sm text-sm text-pitch-foreground/70">
+          <p className="mt-4 max-w-xs text-sm text-pitch-foreground/70">
             DevKics is a global football league for technology communities. Pilot season live in
             Abuja, with new cities opening every quarter.
           </p>
@@ -230,6 +230,16 @@ export function SiteFooter() {
             { label: "Sign in", to: "/auth" },
           ]}
         />
+        <FooterCol
+          title="Legal & Consent"
+          links={[
+            { label: "Terms of Use", to: "/legal", search: { tab: "terms" } },
+            { label: "Privacy Policy", to: "/legal", search: { tab: "privacy" } },
+            { label: "Code of Conduct", to: "/legal", search: { tab: "conduct" } },
+            { label: "Player Waiver", to: "/legal", search: { tab: "waiver" } },
+            { label: "Agreements", to: "/legal", search: { tab: "agreements" } },
+          ]}
+        />
       </div>
       <div className="border-t border-pitch-foreground/10">
         <div className="mx-auto max-w-6xl px-5 py-5 text-xs text-pitch-foreground/55">
@@ -240,7 +250,13 @@ export function SiteFooter() {
   );
 }
 
-function FooterCol({ title, links }: { title: string; links: { label: string; to: string }[] }) {
+function FooterCol({
+  title,
+  links,
+}: {
+  title: string;
+  links: { label: string; to: string; search?: Record<string, string> }[];
+}) {
   return (
     <nav aria-label={`${title} links`}>
       <p className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-pitch-foreground/50">
@@ -249,12 +265,22 @@ function FooterCol({ title, links }: { title: string; links: { label: string; to
       <ul className="space-y-2">
         {links.map((l) => (
           <li key={l.to + l.label}>
-            <Link
-              to={l.to}
-              className="text-sm text-pitch-foreground/80 transition-colors hover:text-pitch-foreground"
-            >
-              {l.label}
-            </Link>
+            {l.search ? (
+              <Link
+                to={l.to}
+                search={l.search}
+                className="text-sm text-pitch-foreground/80 transition-colors hover:text-pitch-foreground"
+              >
+                {l.label}
+              </Link>
+            ) : (
+              <Link
+                to={l.to}
+                className="text-sm text-pitch-foreground/80 transition-colors hover:text-pitch-foreground"
+              >
+                {l.label}
+              </Link>
+            )}
           </li>
         ))}
       </ul>

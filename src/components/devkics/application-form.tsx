@@ -1,8 +1,10 @@
+import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -29,6 +31,7 @@ export function ApplicationForm({
 }) {
   const { cities, submitApplication, submitVolunteerApplication } = useDevKics();
   const [done, setDone] = useState(false);
+  const [agreementAccepted, setAgreementAccepted] = useState(true);
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -65,6 +68,10 @@ export function ApplicationForm({
       className="space-y-5 rounded-3xl border border-border bg-card p-7"
       onSubmit={async (e) => {
         e.preventDefault();
+        if (!agreementAccepted) {
+          toast.error("You must accept the agreement and Code of Conduct before submitting.");
+          return;
+        }
         try {
           if (kind === "volunteer") {
             const citySlug = cities.find(
@@ -143,6 +150,63 @@ export function ApplicationForm({
           placeholder={detailPlaceholder}
         />
       </Field>
+      <div className="flex items-start space-x-3 pt-1">
+        <Checkbox
+          id="app-agreement"
+          checked={agreementAccepted}
+          onCheckedChange={(c) => setAgreementAccepted(c === true)}
+        />
+        <Label
+          htmlFor="app-agreement"
+          className="text-xs font-normal leading-relaxed text-muted-foreground"
+        >
+          {kind === "volunteer" ? (
+            <>
+              I agree to the{" "}
+              <Link
+                to="/legal"
+                search={{ tab: "agreements" }}
+                target="_blank"
+                className="font-medium text-foreground underline underline-offset-2 hover:text-primary"
+              >
+                Volunteer Agreement
+              </Link>{" "}
+              and commit to the DevKics{" "}
+              <Link
+                to="/legal"
+                search={{ tab: "conduct" }}
+                target="_blank"
+                className="font-medium text-foreground underline underline-offset-2 hover:text-primary"
+              >
+                Code of Conduct
+              </Link>
+              .
+            </>
+          ) : (
+            <>
+              I agree to the{" "}
+              <Link
+                to="/legal"
+                search={{ tab: "agreements" }}
+                target="_blank"
+                className="font-medium text-foreground underline underline-offset-2 hover:text-primary"
+              >
+                City Organizer Agreement
+              </Link>{" "}
+              and commit to the DevKics{" "}
+              <Link
+                to="/legal"
+                search={{ tab: "conduct" }}
+                target="_blank"
+                className="font-medium text-foreground underline underline-offset-2 hover:text-primary"
+              >
+                Code of Conduct
+              </Link>
+              .
+            </>
+          )}
+        </Label>
+      </div>
       <Button type="submit" size="lg" className="w-full rounded-full">
         {submitLabel}
       </Button>

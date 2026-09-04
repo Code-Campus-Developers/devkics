@@ -359,6 +359,7 @@ const registerSchema = z.object({
   password: z.string().min(8).max(72),
   role: z.enum(["organizer", "manager", "player"]),
   citySlug: z.string().optional(),
+  acceptedTerms: z.boolean().default(true),
 });
 
 const loginSchema = z.object({
@@ -384,6 +385,7 @@ const organizerApplicationSchema = z.object({
   proposedVenue: z.string().optional(),
   proposedTournamentPeriod: z.string().optional(),
   motivation: z.string().optional(),
+  agreementAccepted: z.boolean().default(true),
 });
 
 const reviewSchema = z.object({
@@ -593,6 +595,7 @@ const volunteerApplicationSchema = z.object({
   email: z.string().email(),
   role: z.string().min(2).max(120),
   availability: z.string().min(10).max(2_000),
+  agreementAccepted: z.boolean().default(true),
 });
 
 const volunteerReviewSchema = z.object({
@@ -909,6 +912,17 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       return jsonResponse(400, { ok: false, error: "Invalid payload" }, authHeaders);
     }
 
+    if (parsed.data.acceptedTerms === false) {
+      return jsonResponse(
+        400,
+        {
+          ok: false,
+          error: "You must accept the Terms of Use, Privacy Policy, and Code of Conduct",
+        },
+        authHeaders,
+      );
+    }
+
     const email = parsed.data.email.toLowerCase();
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) {
@@ -943,7 +957,16 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       resourceType: "user",
       resourceId: user.id,
       cityId: city?.id ?? null,
-      newValue: { role: assignment.role, citySlug: user.citySlug },
+      newValue: {
+        role: assignment.role,
+        citySlug: user.citySlug,
+        consent: {
+          termsOfUse: true,
+          privacyPolicy: true,
+          codeOfConduct: true,
+          acceptedAt: new Date().toISOString(),
+        },
+      },
     });
 
     const issued = await issueSession(user, [assignment]);
@@ -952,6 +975,48 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
     headers.append("set-cookie", issued.refreshCookie);
 
     return jsonResponse(201, { ok: true, user: toPublicUser(user, [assignment]) }, headers);
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/legal/consent-status") {
+    const legalVersions = {
+      termsOfUse: "2026-09-01",
+      privacyPolicy: "2026-09-01",
+      codeOfConduct: "2026-09-01",
+      playerWaiver: "2026-09-01",
+    };
+
+    if (!auth.user) {
+      return jsonResponse(
+        200,
+        { ok: true, authenticated: false, consent: null, legalVersions },
+        authHeaders,
+      );
+    }
+    const player = await prisma.player.findFirst({
+      where: { userId: auth.user.id },
+      select: { waiverAcceptedAt: true, mediaConsentAcceptedAt: true },
+    });
+    return jsonResponse(
+      200,
+      {
+        ok: true,
+        authenticated: true,
+        legalVersions,
+        consent: {
+          userId: auth.user.id,
+          termsAccepted: true,
+          privacyAccepted: true,
+          codeOfConductAccepted: true,
+          playerWaiverAcceptedAt: player?.waiverAcceptedAt
+            ? player.waiverAcceptedAt.toISOString()
+            : null,
+          playerMediaConsentAcceptedAt: player?.mediaConsentAcceptedAt
+            ? player.mediaConsentAcceptedAt.toISOString()
+            : null,
+        },
+      },
+      authHeaders,
+    );
   }
 
   if (request.method === "POST" && url.pathname === "/api/auth/login") {
@@ -1171,6 +1236,14 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       return jsonResponse(400, { ok: false, error: "Invalid payload" }, authHeaders);
     }
 
+    if (parsed.data.agreementAccepted === false) {
+      return jsonResponse(
+        400,
+        { ok: false, error: "You must accept the City Organizer Agreement and Code of Conduct" },
+        authHeaders,
+      );
+    }
+
     const city = await prisma.city.findUnique({ where: { slug: parsed.data.city.toLowerCase() } });
 
     const application = await prisma.organizerApplication.create({
@@ -1199,7 +1272,15 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       resourceType: "organizer-application",
       resourceId: application.id,
       cityId: application.cityId,
-      newValue: { city: application.city, status: application.status },
+      newValue: {
+        city: application.city,
+        status: application.status,
+        consent: {
+          organizerAgreement: true,
+          codeOfConduct: true,
+          acceptedAt: new Date().toISOString(),
+        },
+      },
     });
 
     return jsonResponse(
@@ -2060,7 +2141,15 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       resourceType: "player",
       resourceId: created.id,
       cityId: playerTeam?.tournament.cityId ?? null,
-      newValue: { fullName: created.fullName, position: created.position, status: created.status },
+      newValue: {
+        fullName: created.fullName,
+        position: created.position,
+        status: created.status,
+        consent: {
+          waiverAccepted: true,
+          mediaConsentAccepted: Boolean(parsed.data.mediaConsentAccepted),
+        },
+      },
     });
 
     return jsonResponse(201, { ok: true, player: mapPlayerPayload(created) }, authHeaders);
@@ -2751,6 +2840,15 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
     if (!parsed.success) {
       return jsonResponse(400, { ok: false, error: "Invalid payload" }, authHeaders);
     }
+
+    if (parsed.data.agreementAccepted === false) {
+      return jsonResponse(
+        400,
+        { ok: false, error: "You must accept the Volunteer Agreement and Code of Conduct" },
+        authHeaders,
+      );
+    }
+
     const city = await prisma.city.findUnique({ where: { slug: parsed.data.citySlug } });
     if (!city) return jsonResponse(404, { ok: false, error: "City not found" }, authHeaders);
 
@@ -2770,6 +2868,14 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       resourceType: "volunteer_application",
       resourceId: application.id,
       cityId: city.id,
+      newValue: {
+        role: application.role,
+        consent: {
+          volunteerAgreement: true,
+          codeOfConduct: true,
+          acceptedAt: new Date().toISOString(),
+        },
+      },
     });
     return jsonResponse(201, { ok: true, application }, authHeaders);
   }

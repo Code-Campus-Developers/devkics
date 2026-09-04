@@ -29,6 +29,7 @@ type SignUpInput = {
   email: string;
   password: string;
   role: User["role"];
+  acceptedTerms?: boolean;
 };
 
 type ResultDetail = {
@@ -383,7 +384,7 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
     staleTime: 20_000,
     refetchOnWindowFocus: false,
     retry: false,
-    enabled: !!currentUser,
+    enabled: currentUser?.role === "admin" || currentUser?.role === "organizer",
   });
 
   const sponsorshipEnquiriesQuery = useQuery({
