@@ -42,8 +42,12 @@ function CitiesPage() {
       />
 
       <div className="relative mt-8 max-w-md">
+        <label htmlFor="city-search" className="sr-only">
+          Search cities or countries
+        </label>
         <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input
+          id="city-search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search city or country"

@@ -26,7 +26,7 @@ export function AdminDashboard() {
       </div>
 
       <Tabs defaultValue="cities">
-        <TabsList className="rounded-full">
+        <TabsList className="rounded-full" aria-label="Admin dashboard sections">
           <TabsTrigger value="cities" className="rounded-full">
             Cities
           </TabsTrigger>

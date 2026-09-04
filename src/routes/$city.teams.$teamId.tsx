@@ -88,15 +88,28 @@ function TeamDetail() {
       <section>
         <h2 className="text-2xl font-bold">Squad</h2>
         <div className="mt-6 overflow-x-auto rounded-3xl border border-border bg-card">
-          <table className="w-full min-w-[560px] text-sm">
+          <table className="w-full min-w-[560px] text-sm" aria-label="Team squad roster">
+            <caption className="sr-only">Team Squad Roster</caption>
             <thead>
               <tr className="border-b border-border text-xs uppercase tracking-wider text-muted-foreground">
-                <th className="px-4 py-3 text-left font-semibold">#</th>
-                <th className="px-4 py-3 text-left font-semibold">Player</th>
-                <th className="px-4 py-3 text-left font-semibold">Position</th>
-                <th className="px-4 py-3 text-left font-semibold">Day job</th>
-                <th className="px-3 py-3 text-center font-semibold">G</th>
-                <th className="px-3 py-3 text-center font-semibold">A</th>
+                <th scope="col" className="px-4 py-3 text-left font-semibold">
+                  <span className="sr-only">Kit Number</span>#
+                </th>
+                <th scope="col" className="px-4 py-3 text-left font-semibold">
+                  Player
+                </th>
+                <th scope="col" className="px-4 py-3 text-left font-semibold">
+                  Position
+                </th>
+                <th scope="col" className="px-4 py-3 text-left font-semibold">
+                  Day job
+                </th>
+                <th scope="col" className="px-3 py-3 text-center font-semibold">
+                  <abbr title="Goals">G</abbr>
+                </th>
+                <th scope="col" className="px-3 py-3 text-center font-semibold">
+                  <abbr title="Assists">A</abbr>
+                </th>
               </tr>
             </thead>
             <tbody>

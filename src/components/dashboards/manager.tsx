@@ -245,7 +245,7 @@ export function ManagerDashboard() {
       </div>
 
       <Tabs defaultValue="squad">
-        <TabsList className="rounded-full">
+        <TabsList className="rounded-full" aria-label="Team manager sections">
           <TabsTrigger value="squad" className="rounded-full">
             Squad
           </TabsTrigger>

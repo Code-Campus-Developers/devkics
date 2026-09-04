@@ -4,7 +4,13 @@ import { useState } from "react";
 
 import { Logo } from "./brand";
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -50,7 +56,7 @@ export function SiteHeader() {
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-6 px-5">
         <Logo />
 
-        <nav className="hidden items-center gap-1 lg:flex">
+        <nav className="hidden items-center gap-1 lg:flex" aria-label="Main navigation">
           {nav.map((item) => (
             <Link
               key={item.to}
@@ -74,7 +80,7 @@ export function SiteHeader() {
                     variant="ghost"
                     size="icon"
                     className="relative"
-                    aria-label="Notifications"
+                    aria-label={`Notifications${unreadNotificationCount > 0 ? `, ${unreadNotificationCount} unread` : ""}`}
                   >
                     <Bell className="size-4" />
                     {unreadNotificationCount > 0 && (
@@ -125,7 +131,12 @@ export function SiteHeader() {
               </Popover>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm" className="rounded-full">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="rounded-full"
+                    aria-label={`${currentUser.name.split(" ")[0]} account menu`}
+                  >
                     {currentUser.name.split(" ")[0]}
                   </Button>
                 </DropdownMenuTrigger>
@@ -143,36 +154,45 @@ export function SiteHeader() {
             </>
           ) : (
             <Button asChild size="sm" className="hidden rounded-full sm:inline-flex">
-              <a href="/auth">Sign in</a>
+              <Link to="/auth">Sign in</Link>
             </Button>
           )}
 
           <Sheet open={open} onOpenChange={setOpen}>
             <SheetTrigger asChild>
-              <Button variant="ghost" size="icon" className="lg:hidden" aria-label="Open menu">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="lg:hidden"
+                aria-label="Open navigation menu"
+              >
                 <Menu className="size-5" />
               </Button>
             </SheetTrigger>
             <SheetContent side="right" className="w-72 p-6">
-              <div className="mt-8 flex flex-col gap-1">
+              <SheetTitle className="sr-only">Site Navigation</SheetTitle>
+              <SheetDescription className="sr-only">
+                Navigation links for DevKics mobile menu
+              </SheetDescription>
+              <nav className="mt-8 flex flex-col gap-1" aria-label="Mobile navigation">
                 {nav.map((item) => (
-                  <a
+                  <Link
                     key={item.to}
-                    href={item.to}
+                    to={item.to}
                     onClick={() => setOpen(false)}
                     className="rounded-lg px-3 py-2.5 text-sm font-medium hover:bg-accent"
                   >
                     {item.label}
-                  </a>
+                  </Link>
                 ))}
-                <a
-                  href={currentUser ? "/dashboard" : "/auth"}
+                <Link
+                  to={currentUser ? "/dashboard" : "/auth"}
                   onClick={() => setOpen(false)}
                   className="mt-3 rounded-lg bg-primary px-3 py-2.5 text-center text-sm font-semibold text-primary-foreground"
                 >
                   {currentUser ? "Dashboard" : "Sign in"}
-                </a>
-              </div>
+                </Link>
+              </nav>
             </SheetContent>
           </Sheet>
         </div>
@@ -222,22 +242,22 @@ export function SiteFooter() {
 
 function FooterCol({ title, links }: { title: string; links: { label: string; to: string }[] }) {
   return (
-    <div>
+    <nav aria-label={`${title} links`}>
       <p className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-pitch-foreground/50">
         {title}
       </p>
       <ul className="space-y-2">
         {links.map((l) => (
           <li key={l.to + l.label}>
-            <a
-              href={l.to}
+            <Link
+              to={l.to}
               className="text-sm text-pitch-foreground/80 transition-colors hover:text-pitch-foreground"
             >
               {l.label}
-            </a>
+            </Link>
           </li>
         ))}
       </ul>
-    </div>
+    </nav>
   );
 }

@@ -49,8 +49,12 @@ function PlayersPage() {
 
       <div className="mt-8 flex flex-col gap-3 sm:flex-row">
         <div className="relative flex-1">
+          <label htmlFor="player-search" className="sr-only">
+            Search players or roles
+          </label>
           <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
+            id="player-search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search players or roles"
@@ -58,7 +62,10 @@ function PlayersPage() {
           />
         </div>
         <Select value={position} onValueChange={setPosition}>
-          <SelectTrigger className="h-11 w-full rounded-full sm:w-44">
+          <SelectTrigger
+            aria-label="Filter by position"
+            className="h-11 w-full rounded-full sm:w-44"
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

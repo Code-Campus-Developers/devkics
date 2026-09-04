@@ -78,7 +78,7 @@ export function OrganizerDashboard() {
       </div>
 
       <Tabs defaultValue="matches">
-        <TabsList className="rounded-full">
+        <TabsList className="rounded-full" aria-label="Organizer management sections">
           <TabsTrigger value="matches" className="rounded-full">
             Fixtures & results
           </TabsTrigger>

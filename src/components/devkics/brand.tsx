@@ -149,7 +149,7 @@ export function StatCard({
           "mt-2 font-display text-3xl font-bold",
           tone === "default" && "text-foreground",
           tone === "wine" && "text-wine",
-          tone === "flare" && "text-flare",
+          tone === "flare" && "text-[oklch(0.48_0.16_45)] dark:text-[oklch(0.78_0.16_55)]",
         )}
       >
         {value}
@@ -159,9 +159,17 @@ export function StatCard({
   );
 }
 
+const formResultLabels: Record<string, string> = {
+  W: "Win",
+  D: "Draw",
+  L: "Loss",
+};
+
 export function FormPill({ result }: { result: string }) {
   return (
     <span
+      role="img"
+      aria-label={formResultLabels[result] ?? result}
       className={cn(
         "grid size-6 place-items-center rounded-md text-[11px] font-bold",
         result === "W" && "bg-primary/15 text-primary",

@@ -90,6 +90,9 @@ function NewsPage() {
                 />
               )}
               <button
+                type="button"
+                aria-expanded={open}
+                aria-controls={`announcement-body-${item.id}`}
                 onClick={() => setOpenId(open ? null : item.id)}
                 className="flex w-full flex-col gap-2 p-6 text-left"
               >
@@ -108,7 +111,10 @@ function NewsPage() {
                 <p className="text-sm text-muted-foreground">{item.excerpt}</p>
               </button>
               {open && (
-                <div className="border-t border-border px-6 py-5 text-sm leading-relaxed text-muted-foreground">
+                <div
+                  id={`announcement-body-${item.id}`}
+                  className="border-t border-border px-6 py-5 text-sm leading-relaxed text-muted-foreground"
+                >
                   {item.body}
                 </div>
               )}

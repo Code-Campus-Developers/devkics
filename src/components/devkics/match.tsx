@@ -77,18 +77,39 @@ export function StandingsTable({
 
   return (
     <div className="overflow-x-auto rounded-3xl border border-border bg-card">
-      <table className="w-full min-w-[640px] text-sm">
+      <table className="w-full min-w-[640px] text-sm" aria-label="League standings table">
+        <caption className="sr-only">League Standings Table</caption>
         <thead>
           <tr className="border-b border-border text-xs uppercase tracking-wider text-muted-foreground">
-            <th className="px-4 py-3 text-left font-semibold">#</th>
-            <th className="px-4 py-3 text-left font-semibold">Team</th>
-            <th className="px-3 py-3 text-center font-semibold">P</th>
-            <th className="px-3 py-3 text-center font-semibold">W</th>
-            <th className="px-3 py-3 text-center font-semibold">D</th>
-            <th className="px-3 py-3 text-center font-semibold">L</th>
-            <th className="px-3 py-3 text-center font-semibold">GD</th>
-            <th className="px-3 py-3 text-center font-semibold">Pts</th>
-            {!compact && <th className="px-4 py-3 text-left font-semibold">Form</th>}
+            <th scope="col" className="px-4 py-3 text-left font-semibold">
+              <span className="sr-only">Position</span>#
+            </th>
+            <th scope="col" className="px-4 py-3 text-left font-semibold">
+              Team
+            </th>
+            <th scope="col" className="px-3 py-3 text-center font-semibold">
+              <abbr title="Played">P</abbr>
+            </th>
+            <th scope="col" className="px-3 py-3 text-center font-semibold">
+              <abbr title="Won">W</abbr>
+            </th>
+            <th scope="col" className="px-3 py-3 text-center font-semibold">
+              <abbr title="Drawn">D</abbr>
+            </th>
+            <th scope="col" className="px-3 py-3 text-center font-semibold">
+              <abbr title="Lost">L</abbr>
+            </th>
+            <th scope="col" className="px-3 py-3 text-center font-semibold">
+              <abbr title="Goal Difference">GD</abbr>
+            </th>
+            <th scope="col" className="px-3 py-3 text-center font-semibold">
+              <abbr title="Points">Pts</abbr>
+            </th>
+            {!compact && (
+              <th scope="col" className="px-4 py-3 text-left font-semibold">
+                Form
+              </th>
+            )}
           </tr>
         </thead>
         <tbody>

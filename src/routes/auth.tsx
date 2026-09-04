@@ -88,7 +88,10 @@ function AuthPage() {
 
       <div className="rounded-3xl border border-border bg-card p-7">
         <Tabs defaultValue="signin">
-          <TabsList className="grid w-full grid-cols-2 rounded-full">
+          <TabsList
+            className="grid w-full grid-cols-2 rounded-full"
+            aria-label="Authentication modes"
+          >
             <TabsTrigger value="signin" className="rounded-full">
               Sign in
             </TabsTrigger>
@@ -116,8 +119,9 @@ function AuthPage() {
               }}
             >
               <div className="space-y-2">
-                <Label>Email</Label>
+                <Label htmlFor="signin-email">Email</Label>
                 <Input
+                  id="signin-email"
                   required
                   type="email"
                   value={signIn.email}
@@ -126,8 +130,9 @@ function AuthPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Password</Label>
+                <Label htmlFor="signin-password">Password</Label>
                 <Input
+                  id="signin-password"
                   required
                   type="password"
                   value={signIn.password}
@@ -160,8 +165,9 @@ function AuthPage() {
               }}
             >
               <div className="space-y-2">
-                <Label>Full name</Label>
+                <Label htmlFor="register-name">Full name</Label>
                 <Input
+                  id="register-name"
                   required
                   value={signUp.name}
                   onChange={(e) => setSignUp({ ...signUp, name: e.target.value })}
@@ -169,8 +175,9 @@ function AuthPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Email</Label>
+                <Label htmlFor="register-email">Email</Label>
                 <Input
+                  id="register-email"
                   required
                   type="email"
                   value={signUp.email}
@@ -179,8 +186,9 @@ function AuthPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Password</Label>
+                <Label htmlFor="register-password">Password</Label>
                 <Input
+                  id="register-password"
                   required
                   type="password"
                   value={signUp.password}
@@ -189,12 +197,12 @@ function AuthPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>I am joining as</Label>
+                <Label htmlFor="register-role">I am joining as</Label>
                 <Select
                   value={signUp.role}
                   onValueChange={(v) => setSignUp({ ...signUp, role: v as Role })}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger id="register-role" aria-label="I am joining as">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>

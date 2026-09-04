@@ -89,16 +89,18 @@ export function ApplicationForm({
       }}
     >
       <div className="grid gap-5 sm:grid-cols-2">
-        <Field label="Full name">
+        <Field label="Full name" id="app-name">
           <Input
+            id="app-name"
             required
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
             placeholder="Ada Lovelace"
           />
         </Field>
-        <Field label="Email">
+        <Field label="Email" id="app-email">
           <Input
+            id="app-email"
             required
             type="email"
             value={form.email}
@@ -107,8 +109,9 @@ export function ApplicationForm({
           />
         </Field>
       </div>
-      <Field label="City">
+      <Field label="City" id="app-city">
         <Input
+          id="app-city"
           required
           value={form.city}
           onChange={(e) => setForm({ ...form, city: e.target.value })}
@@ -116,9 +119,9 @@ export function ApplicationForm({
         />
       </Field>
       {kind === "volunteer" && (
-        <Field label="Volunteer role">
+        <Field label="Volunteer role" id="app-role">
           <Select value={form.role} onValueChange={(role) => setForm({ ...form, role })}>
-            <SelectTrigger>
+            <SelectTrigger id="app-role" aria-label="Volunteer role">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -130,8 +133,9 @@ export function ApplicationForm({
           </Select>
         </Field>
       )}
-      <Field label={detailLabel}>
+      <Field label={detailLabel} id="app-detail">
         <Textarea
+          id="app-detail"
           required
           rows={4}
           value={form.detail}
@@ -146,10 +150,12 @@ export function ApplicationForm({
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, id, children }: { label: string; id?: string; children: React.ReactNode }) {
   return (
     <div className="space-y-2">
-      <Label className="text-sm font-medium">{label}</Label>
+      <Label htmlFor={id} className="text-sm font-medium">
+        {label}
+      </Label>
       {children}
     </div>
   );

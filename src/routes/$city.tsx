@@ -45,7 +45,7 @@ function CityLayout() {
         </div>
         <div className="border-t border-pitch-foreground/10">
           <div className="mx-auto max-w-6xl overflow-x-auto px-5">
-            <nav className="flex gap-1 py-2">
+            <nav className="flex gap-1 py-2" aria-label="City section navigation">
               {tabs.map((tab) => {
                 const href = tab.to.replace("$city", city);
                 const active = tab.exact ? pathname === href : pathname.startsWith(href);
@@ -54,6 +54,7 @@ function CityLayout() {
                     key={tab.label}
                     to={tab.to}
                     params={{ city }}
+                    aria-current={active ? "page" : undefined}
                     className={cn(
                       "whitespace-nowrap rounded-full px-4 py-2 text-sm font-medium transition-colors",
                       active
