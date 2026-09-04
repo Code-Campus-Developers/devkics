@@ -1,100 +1,194 @@
-# DevKics
+# DevKics — Where Tech Comes to Play
 
-**Where Tech Comes to Play**
+DevKics is the global football platform for technology communities — engineers, designers, founders, product managers, and tech companies — organized city-by-city under a single digital platform. Founded and governed by **Code Campus International**, with Abuja running as the pilot tournament city.
 
-DevKics is a global, community-led football platform for technology communities — engineers, designers, founders, students, startups, and tech companies — organized city by city under a single digital platform. It is founded and owned by **Code Campus International**, with Abuja running as the pilot city.
+The platform provides approved local organizers with tournament infrastructure — registration, squad vetting, fixtures, live scoring, standings, volunteer operations, sponsors, announcements, and media — while maintaining centralized brand, role-based access control (RBAC), and governance standards.
 
-Football is the medium; community is the outcome. DevKics gives approved local volunteers everything they need to run an official DevKics tournament in their city — registration, team and player management, fixtures, live scores, standings, sponsors, volunteers, media and reporting — while the central DevKics organization maintains brand, governance, and platform standards across every city.
+---
 
-## Purpose
+## Architecture & Tech Stack
 
-This repository contains the DevKics web platform: a multi-city tournament and community management product with a dedicated portal per city (e.g. `/abuja`, `/lagos`, `/london`) sitting under one global site. The product requirements are defined in full in [`Docs/DevKics Global Concept Note.pdf`](Docs/DevKics%20Global%20Concept%20Note.pdf) and [`Docs/DevKics Product Requirements Document.pdf`](Docs/DevKics%20Product%20Requirements%20Document.pdf).
+- **Frontend & Full-Stack SSR:** [TanStack Start](https://tanstack.com/start) (React 19, Vite, TanStack Router with file-based routing)
+- **Styling & UI:** Tailwind CSS v4, [shadcn/ui](https://ui.shadcn.com) primitives (Radix UI), Lucide icons
+- **State & Data Hydration:** `@tanstack/react-query`
+- **Database & ORM:** PostgreSQL 16 with [Prisma 7](https://www.prisma.io/) (`@prisma/client`, `@prisma/adapter-pg`)
+- **Authentication & RBAC:** Secure HTTP-only cookie JWT auth (`jose`, `bcryptjs`) with scoped roles (`ADMIN`, `ORGANIZER`, `MANAGER`, `PLAYER`)
+- **Testing:** Vitest (unit & integration) + Playwright (cross-browser E2E)
+- **Containerization:** Multi-stage Dockerfile (`oven/bun:1.4`) and Docker Compose
 
-## Current status: MVP frontend prototype
+---
 
-This codebase is a working, clickable **frontend MVP prototype** built against local/mock data, covering:
+## Quick Start
 
-**Public**
-Home · Find a City · City Portal (Abuja) · Tournament Overview · Teams · Players · Fixtures · Results · Standings · Sponsors · News/Announcements · Media/Gallery · Volunteer Application · Become a City Organizer · Login/Register
+### Prerequisites
 
-**Authenticated dashboards**
-Global Admin · City Organizer · Team Manager · Player
+- [Bun](https://bun.sh) (v1.2+)
+- PostgreSQL 16+ (or Docker)
 
-Core flows work end-to-end against local state: find Abuja → tournament → teams → fixtures → standings; register/login → role-based dashboard; team manager creates a team and adds players; organizer manages fixtures, results and applications; match results update standings immediately.
+### 1. Clone & Install
 
-The frontend has undergone a full audit against the Concept Note and PRD. The path from this prototype to a production-ready MVP (real backend, database, authentication, RBAC enforcement, and the remaining PRD workflows) is documented in **[Docs/DEVKICS_IMPLEMENTATION_ROADMAP.md](Docs/DEVKICS_IMPLEMENTATION_ROADMAP.md)**, phased as:
-
-1. Foundation — auth, JWT, multi-role RBAC, city management, organizer applications, dashboards
-2. Tournament Operations — organizations, teams, players, fixtures, results, standings, brackets
-3. Community & Content — volunteers, sponsors, announcements, media, notifications
-4. MVP Hardening & Launch — audit logging, reporting, security, accessibility, SEO, production readiness
-5. Post-MVP / Future Scale — future work explicitly identified in the PRD, out of MVP scope
-
-## Tech stack
-
-- **Framework:** [TanStack Start](https://tanstack.com/start) (React 19, file-based routing via TanStack Router)
-- **Language:** TypeScript (strict mode)
-- **Styling/UI:** Tailwind CSS v4 + [shadcn/ui](https://ui.shadcn.com) (Radix primitives)
-- **Data (prototype stage):** local seed data and React Context (`src/lib/devkics/store.tsx`), persisted to `localStorage`; `@tanstack/react-query` is already wired in for the API integration phase
-- **Package manager:** [Bun](https://bun.sh)
-- **Build tool:** Vite
-
-## Project structure
-
-```
-src/
-  routes/            File-based routes (TanStack Router) — public pages + /$city/* portal pages
-  components/
-    devkics/          DevKics-specific UI (brand, site shell, match/standings, application form)
-    dashboards/        Role dashboards (admin, organizer, manager, player)
-    ui/                shadcn/ui primitives
-  lib/devkics/         Mock data (seed.ts), types (types.ts), and the state/service layer (store.tsx)
-Docs/                  Concept Note, PRD, and implementation roadmap
-```
-
-## Local setup
-
-Requires [Bun](https://bun.sh).
-
-```sh
+```bash
 git clone https://github.com/Code-Campus-Developers/devkics.git
 cd devkics
 bun install
+```
+
+### 2. Configure Environment Variables
+
+Copy `.env.example` to `.env`:
+
+```bash
+cp .env.example .env
+```
+
+Key environment variables:
+
+| Variable                  | Description                             | Default / Example                                                     |
+| :------------------------ | :-------------------------------------- | :-------------------------------------------------------------------- |
+| `DATABASE_URL`            | PostgreSQL connection string            | `postgresql://postgres:postgres@localhost:5432/devkics?schema=public` |
+| `JWT_ACCESS_SECRET`       | Secret key for signing session tokens   | Secure random string (min 32 chars)                                   |
+| `JWT_REFRESH_SECRET`      | Secret key for refresh tokens           | Secure random string (min 32 chars)                                   |
+| `ACCESS_TOKEN_TTL`        | Access token lifespan                   | `15m`                                                                 |
+| `REFRESH_TOKEN_TTL`       | Refresh token lifespan                  | `7d`                                                                  |
+| `RESEND_API_KEY`          | Resend API key for transactional emails | `re_...` (optional for local dev)                                     |
+| `RESEND_FROM_EMAIL`       | Verified sender email                   | `DevKics <notifications@your-domain.example>`                         |
+| `SUPABASE_URL`            | Supabase project URL (media storage)    | `https://your-project.supabase.co` (optional)                         |
+| `SUPABASE_SECRET_KEY`     | Supabase service-role secret key        | `your-supabase-service-role-key` (optional)                           |
+| `SUPABASE_GALLERY_BUCKET` | Supabase storage bucket name            | `devkics-gallery`                                                     |
+| `POSTGRES_DB`             | Docker PostgreSQL database name         | `devkics`                                                             |
+| `POSTGRES_USER`           | Docker PostgreSQL user                  | `devkics`                                                             |
+| `POSTGRES_PASSWORD`       | Docker PostgreSQL password              | `devkics`                                                             |
+
+### 3. Database Setup & Seed
+
+```bash
+# Generate Prisma Client
+bun run prisma:generate
+
+# Apply migrations
+bun run prisma:deploy
+
+# Seed initial tournament data (Abuja pilot city, teams, fixtures, and demo users)
+bun run prisma:seed
+```
+
+### 4. Run Development Server
+
+```bash
 bun run dev
 ```
 
-The app runs at `http://localhost:8080`.
+Open `http://localhost:8080` in your browser.
 
-### Other scripts
+---
 
-```sh
-bun run build       # production build
-bun run preview     # preview a production build
-bun run lint        # eslint
-bun run format      # prettier --write
-bun run docker:up   # build and start app + postgres via Docker Compose
-bun run docker:down # stop Docker Compose services
-```
+## Docker Workflow
 
-## Docker Compose (app + PostgreSQL)
+A production-like multi-container environment (App + PostgreSQL) is provided via Docker Compose:
 
-This repository includes a local production-like Docker Compose stack:
-
-- `app`: TanStack Start application container
-- `postgres`: PostgreSQL 16 with persistent volume
-- Health checks and service dependency wiring (`app` waits for healthy `postgres`)
-
-Quick start:
-
-```sh
-cp .env.example .env
+```bash
+# Build and start services in the background
 bun run docker:up
+
+# Follow live container logs
+bun run docker:logs
+
+# Stop services and preserve persistent database volume
+bun run docker:down
 ```
 
-App URL: `http://localhost:8080`
+The app container runs on port `8080` and depends on PostgreSQL passing healthy connectivity checks before starting.
 
-## Documentation
+---
 
-- [Docs/DevKics Global Concept Note.pdf](Docs/DevKics%20Global%20Concept%20Note.pdf) — vision, mission, platform philosophy, governance
-- [Docs/DevKics Product Requirements Document.pdf](Docs/DevKics%20Product%20Requirements%20Document.pdf) — full functional and non-functional requirements
-- [Docs/DEVKICS_IMPLEMENTATION_ROADMAP.md](Docs/DEVKICS_IMPLEMENTATION_ROADMAP.md) — phased plan from this prototype to a launched MVP
+## Database & Migrations
+
+```bash
+bun run prisma:generate     # Generate Prisma client bindings
+bun run prisma:validate     # Validate schema integrity
+bun run prisma:deploy       # Deploy pending migrations
+bun run prisma:seed         # Seed database
+bun run db:reset            # Force reset migrations (wipes data)
+```
+
+---
+
+## Testing & Quality Gates
+
+```bash
+# Unit tests
+bun run test:unit
+
+# Integration tests (API endpoints, RBAC, legal gating, rate limits)
+bun run test:integration
+
+# Full Vitest suite
+bun run test
+
+# End-to-end suite (Playwright)
+bun run e2e
+
+# TypeScript verification
+bun run typecheck
+
+# Code formatting & linting
+bun run lint
+bun run format
+```
+
+---
+
+## Production Build & Deployment
+
+```bash
+# Build standalone production artifacts
+bun run build
+
+# Preview production build locally
+bun run preview
+```
+
+### Containerized Deployment
+
+The multi-stage `Dockerfile` packages the Bun-based SSR server into an optimized runtime:
+
+```bash
+docker build -t devkics-app .
+docker run -p 8080:8080 --env-file .env devkics-app
+```
+
+For production deployments, execute `bun run prisma:deploy` during the deployment pipeline before routing traffic.
+
+---
+
+## Project Structure
+
+```
+├── prisma/               # Prisma schema, migrations, and database seed
+├── public/               # Static assets (favicons, manifest, robots.txt)
+├── src/
+│   ├── components/       # Reusable UI components
+│   │   ├── dashboards/   # Role-based dashboards (Admin, Organizer, Manager, Player)
+│   │   ├── devkics/      # DevKics brand, match components, and layout shell
+│   │   └── ui/           # shadcn/ui primitive components
+│   ├── hooks/            # Custom React hooks
+│   ├── lib/              # Utility functions, client store, and server logic
+│   │   ├── devkics/      # Client state, types, standings calculator
+│   │   └── server/       # Database, auth, RBAC, API handlers, emails
+│   ├── routes/           # TanStack Router file-based routes
+│   ├── styles.css        # Tailwind CSS styles and custom brand tokens
+│   └── server.ts         # Nitro SSR server entry point
+├── tests/
+│   ├── e2e/              # Playwright end-to-end specs
+│   ├── integration/      # Vitest API integration tests
+│   └── unit/             # Vitest unit tests
+└── Docs/                 # Concept Note, PRD, and Implementation Roadmap
+```
+
+---
+
+## Governance & Documentation
+
+- [Docs/DevKics Global Concept Note.pdf](Docs/DevKics%20Global%20Concept%20Note.pdf) — Platform philosophy, mission, and international governance
+- [Docs/DevKics Product Requirements Document.pdf](Docs/DevKics%20Product%20Requirements%20Document.pdf) — Complete functional and non-functional specifications
+- [Docs/DEVKICS_IMPLEMENTATION_ROADMAP.md](Docs/DEVKICS_IMPLEMENTATION_ROADMAP.md) — Phased implementation roadmap

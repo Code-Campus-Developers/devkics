@@ -33,13 +33,6 @@ export const Route = createFileRoute("/auth")({
   component: AuthPage,
 });
 
-const demoAccounts: { role: Role; email: string; label: string }[] = [
-  { role: "admin", email: "admin@devkics.com", label: "Global admin" },
-  { role: "organizer", email: "organizer@devkics.com", label: "City organizer" },
-  { role: "manager", email: "manager@devkics.com", label: "Team manager" },
-  { role: "player", email: "player@devkics.com", label: "Player" },
-];
-
 function AuthPage() {
   const { login, register, currentUser, bootstrapped } = useDevKics();
   const navigate = useNavigate();
@@ -49,7 +42,7 @@ function AuthPage() {
     name: "",
     email: "",
     password: "",
-    role: "player" as Role,
+    role: "player" as "player" | "manager",
   });
 
   useEffect(() => {
@@ -65,24 +58,25 @@ function AuthPage() {
           Sign in to manage your squad, run your city tournament, or follow your own player profile.
         </p>
 
-        <div className="mt-10 rounded-3xl border border-border bg-secondary/40 p-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-            Prototype demo accounts
+        <div className="mt-10 rounded-3xl border border-border bg-secondary/30 p-6">
+          <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
+            Community Football Platform
+          </h2>
+          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+            DevKics brings tech communities together through football. Each city chapter operates
+            under official governance standards with local organizers, verified squads, and
+            real-time tournament tracking.
           </p>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Password for all accounts: <code className="font-medium text-foreground">devkics</code>
-          </p>
-          <div className="mt-4 grid gap-2">
-            {demoAccounts.map((a) => (
-              <button
-                key={a.email}
-                onClick={() => setSignIn({ email: a.email, password: "devkics" })}
-                className="flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3 text-left text-sm transition-colors hover:border-primary/40"
+          <div className="mt-4 border-t border-border/60 pt-4">
+            <p className="text-xs text-muted-foreground">
+              Interested in organizing DevKics in your city?{" "}
+              <Link
+                to="/organize"
+                className="font-medium text-foreground underline underline-offset-2 hover:text-primary"
               >
-                <span className="font-medium">{a.label}</span>
-                <span className="text-xs text-muted-foreground">{a.email}</span>
-              </button>
-            ))}
+                Apply to become a city organizer
+              </Link>
+            </p>
           </div>
         </div>
       </div>
@@ -207,7 +201,7 @@ function AuthPage() {
                 <Label htmlFor="register-role">I am joining as</Label>
                 <Select
                   value={signUp.role}
-                  onValueChange={(v) => setSignUp({ ...signUp, role: v as Role })}
+                  onValueChange={(v) => setSignUp({ ...signUp, role: v as "player" | "manager" })}
                 >
                   <SelectTrigger id="register-role" aria-label="I am joining as">
                     <SelectValue />
@@ -215,9 +209,17 @@ function AuthPage() {
                   <SelectContent>
                     <SelectItem value="player">Player</SelectItem>
                     <SelectItem value="manager">Team manager</SelectItem>
-                    <SelectItem value="organizer">City organizer</SelectItem>
                   </SelectContent>
                 </Select>
+                <p className="text-xs text-muted-foreground">
+                  Want to run DevKics in your city?{" "}
+                  <Link
+                    to="/organize"
+                    className="font-medium text-foreground underline underline-offset-2 hover:text-primary"
+                  >
+                    Apply to become a city organizer
+                  </Link>
+                </p>
               </div>
               <div className="flex items-start space-x-3 pt-1">
                 <Checkbox

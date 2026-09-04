@@ -243,7 +243,7 @@ export function SiteFooter() {
       </div>
       <div className="border-t border-pitch-foreground/10">
         <div className="mx-auto max-w-6xl px-5 py-5 text-xs text-pitch-foreground/55">
-          © 2026 DevKics · A CodeCampus Online initiative · Prototype build
+          © 2026 DevKics · A CodeCampus Online initiative
         </div>
       </div>
     </footer>

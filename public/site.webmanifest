@@ -1,0 +1,26 @@
+{
+  "name": "DevKics — Where Tech Comes to Play",
+  "short_name": "DevKics",
+  "description": "DevKics is the global football league for technology communities. Pilot season live in Abuja.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0a",
+  "theme_color": "#166534",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

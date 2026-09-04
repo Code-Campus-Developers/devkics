@@ -11,7 +11,7 @@ async function registerUser(
     name: string;
     email: string;
     password: string;
-    role?: "player" | "manager" | "organizer";
+    role?: "player" | "manager";
   },
 ) {
   await page.goto("/auth");
@@ -21,12 +21,33 @@ async function registerUser(
   await registerPanel.getByPlaceholder("Ada Lovelace").fill(input.name);
   await registerPanel.getByPlaceholder("you@company.com").fill(input.email);
   await registerPanel.getByPlaceholder("Choose a password").fill(input.password);
-  if (input.role === "organizer") {
+  if (input.role === "manager") {
     await registerPanel.getByRole("combobox").click();
-    await page.getByRole("option", { name: "City organizer" }).click();
+    await page.getByRole("option", { name: "Team manager" }).click();
   }
   await registerPanel.getByRole("button", { name: "Create account" }).click();
   await page.waitForURL("**/dashboard");
+}
+
+async function ensureOrganizer(email: string, name: string = "City Organizer") {
+  const existing = await prisma.user.findUnique({ where: { email } });
+  if (existing) return existing;
+  const abuja = await prisma.city.findUnique({ where: { slug: "abuja" } });
+  return prisma.user.create({
+    data: {
+      email,
+      name,
+      passwordHash: await hashPassword("devkics123"),
+      citySlug: "abuja",
+      assignments: {
+        create: {
+          role: Role.ORGANIZER,
+          cityId: abuja?.id ?? null,
+          countryCode: abuja?.countryCode ?? "NG",
+        },
+      },
+    },
+  });
 }
 
 async function signIn(
@@ -99,13 +120,13 @@ test.describe("Phase 3 community and content", () => {
     await page.getByRole("button", { name: "Submit volunteer application" }).click();
     await expect(page.getByText("Application submitted")).toBeVisible();
 
-    // Sign out and register a fresh city organizer for Abuja.
+    await ensureOrganizer(organizerEmail, organizerName);
+
+    // Sign out and sign in as the approved Abuja city organizer.
     await signOut(page, applicantName.split(" ")[0]!);
-    await registerUser(page, {
-      name: organizerName,
+    await signIn(page, {
       email: organizerEmail,
-      password,
-      role: "organizer",
+      password: "devkics123",
     });
 
     await page.getByRole("tab", { name: "Applications" }).click();
@@ -167,13 +188,12 @@ test.describe("Phase 3 community and content", () => {
     const organizerName = `Newsroom Organizer ${stamp}`;
     const organizerEmail = `newsroom-organizer-${stamp}@devkics.test`;
     const headline = `Matchday briefing ${stamp}`;
-    const password = "devkics123";
 
-    await registerUser(page, {
-      name: organizerName,
+    await ensureOrganizer(organizerEmail, organizerName);
+
+    await signIn(page, {
       email: organizerEmail,
-      password,
-      role: "organizer",
+      password: "devkics123",
     });
 
     await page.getByRole("tab", { name: "Newsroom" }).click();

@@ -5,7 +5,7 @@ const registerSchema = z.object({
   name: z.string().min(2),
   email: z.string().email(),
   password: z.string().min(8).max(72),
-  role: z.enum(["organizer", "manager", "player"]),
+  role: z.enum(["manager", "player"]),
   citySlug: z.string().optional(),
   acceptedTerms: z.boolean().default(true),
 });

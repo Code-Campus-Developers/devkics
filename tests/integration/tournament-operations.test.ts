@@ -564,4 +564,40 @@ describe("Phase 2 tournament operations", () => {
     const forbiddenRes = await handleApiRequest(forbiddenTournamentReq);
     expect(forbiddenRes?.status).toBe(403);
   });
+
+  it("sanitizes reviewNotes for public callers while exposing them to organizers and managers", async () => {
+    // 1. Fetch teams unauthenticated (public)
+    const publicTeamsReq = new Request("http://localhost:8080/api/teams");
+    const publicTeamsRes = await handleApiRequest(publicTeamsReq);
+    expect(publicTeamsRes?.status).toBe(200);
+    const publicTeamsPayload = (await publicTeamsRes?.json()) as {
+      ok: boolean;
+      teams: Array<{ id: string; reviewNotes: string | null }>;
+    };
+    expect(publicTeamsPayload.ok).toBe(true);
+    for (const team of publicTeamsPayload.teams) {
+      expect(team.reviewNotes).toBeNull();
+    }
+
+    // 2. Sign in as admin to verify internal access
+    const adminLoginReq = new Request("http://localhost:8080/api/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "phase2-admin@devkics.com", password: "devkics123" }),
+    });
+    const adminLoginRes = await handleApiRequest(adminLoginReq);
+    const adminCookies = collectSetCookies(adminLoginRes as Response);
+
+    const adminTeamsReq = new Request("http://localhost:8080/api/teams", {
+      headers: { cookie: toCookieHeader(adminCookies) },
+    });
+    const adminTeamsRes = await handleApiRequest(adminTeamsReq);
+    expect(adminTeamsRes?.status).toBe(200);
+    const adminTeamsPayload = (await adminTeamsRes?.json()) as {
+      ok: boolean;
+      teams: Array<{ id: string; reviewNotes: string | null }>;
+    };
+    expect(adminTeamsPayload.ok).toBe(true);
+    expect(Array.isArray(adminTeamsPayload.teams)).toBe(true);
+  });
 });

@@ -239,21 +239,24 @@ function mapTournamentPayload(tournament: {
   };
 }
 
-function mapTeamPayload(team: {
-  id: string;
-  tournamentId: string;
-  organizationId: string;
-  groupId: string | null;
-  name: string;
-  shortName: string;
-  company: string;
-  color: string | null;
-  founded: string | null;
-  status: TeamStatus;
-  reviewNotes: string | null;
-  managerUserId: string | null;
-  submittedAt: Date;
-}) {
+function mapTeamPayload(
+  team: {
+    id: string;
+    tournamentId: string;
+    organizationId: string;
+    groupId: string | null;
+    name: string;
+    shortName: string;
+    company: string;
+    color: string | null;
+    founded: string | null;
+    status: TeamStatus;
+    reviewNotes: string | null;
+    managerUserId: string | null;
+    submittedAt: Date;
+  },
+  options: { includeReviewNotes?: boolean } = {},
+) {
   return {
     id: team.id,
     tournamentId: team.tournamentId,
@@ -265,25 +268,28 @@ function mapTeamPayload(team: {
     color: team.color,
     founded: team.founded,
     status: mapTeamStatus(team.status),
-    reviewNotes: team.reviewNotes,
+    reviewNotes: options.includeReviewNotes ? team.reviewNotes : null,
     managerUserId: team.managerUserId,
     submittedAt: team.submittedAt.toISOString(),
   };
 }
 
-function mapPlayerPayload(player: {
-  id: string;
-  teamId: string;
-  userId: string | null;
-  fullName: string;
-  email?: string | null;
-  position: string;
-  number: number | null;
-  role: string | null;
-  status: PlayerStatus;
-  reviewNotes: string | null;
-  submittedAt: Date;
-}) {
+function mapPlayerPayload(
+  player: {
+    id: string;
+    teamId: string;
+    userId: string | null;
+    fullName: string;
+    email?: string | null;
+    position: string;
+    number: number | null;
+    role: string | null;
+    status: PlayerStatus;
+    reviewNotes: string | null;
+    submittedAt: Date;
+  },
+  options: { includeReviewNotes?: boolean } = {},
+) {
   return {
     id: player.id,
     teamId: player.teamId,
@@ -294,7 +300,7 @@ function mapPlayerPayload(player: {
     number: player.number,
     role: player.role,
     status: mapPlayerStatus(player.status),
-    reviewNotes: player.reviewNotes,
+    reviewNotes: options.includeReviewNotes ? player.reviewNotes : null,
     submittedAt: player.submittedAt.toISOString(),
   };
 }
@@ -361,7 +367,7 @@ const registerSchema = z.object({
   name: z.string().min(2),
   email: z.string().email(),
   password: z.string().min(8).max(72),
-  role: z.enum(["organizer", "manager", "player"]),
+  role: z.enum(["manager", "player"]),
   citySlug: z.string().optional(),
   acceptedTerms: z.boolean().default(true),
 });
@@ -1854,11 +1860,21 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       prisma.team.count({ where }),
     ]);
 
+    const canViewAllTeamReviewNotes =
+      Boolean(auth.user) &&
+      (isAdmin(auth.user!, auth.assignments) || hasScopedRole(auth.assignments, Role.ORGANIZER));
+
     return jsonResponse(
       200,
       {
         ok: true,
-        teams: teams.map(mapTeamPayload),
+        teams: teams.map((team) =>
+          mapTeamPayload(team, {
+            includeReviewNotes:
+              canViewAllTeamReviewNotes ||
+              (Boolean(auth.user) && team.managerUserId === auth.user?.id),
+          }),
+        ),
         page,
         pageSize,
         total,
@@ -1942,7 +1958,11 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       newValue: { name: created.name, shortName: created.shortName, status: created.status },
     });
 
-    return jsonResponse(201, { ok: true, team: mapTeamPayload(created) }, authHeaders);
+    return jsonResponse(
+      201,
+      { ok: true, team: mapTeamPayload(created, { includeReviewNotes: true }) },
+      authHeaders,
+    );
   }
 
   if (request.method === "PATCH" && url.pathname.startsWith("/api/teams/")) {
@@ -2041,7 +2061,11 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       );
     }
 
-    return jsonResponse(200, { ok: true, team: mapTeamPayload(updated) }, authHeaders);
+    return jsonResponse(
+      200,
+      { ok: true, team: mapTeamPayload(updated, { includeReviewNotes: true }) },
+      authHeaders,
+    );
   }
 
   // players
@@ -2083,11 +2107,18 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       prisma.player.count({ where }),
     ]);
 
+    const canViewAllPlayerReviewNotes =
+      isAdmin(auth.user, auth.assignments) || hasScopedRole(auth.assignments, Role.ORGANIZER);
+
     return jsonResponse(
       200,
       {
         ok: true,
-        players: players.map(mapPlayerPayload),
+        players: players.map((player) =>
+          mapPlayerPayload(player, {
+            includeReviewNotes: canViewAllPlayerReviewNotes || player.userId === auth.user.id,
+          }),
+        ),
         page,
         pageSize,
         total,
@@ -2183,7 +2214,11 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       },
     });
 
-    return jsonResponse(201, { ok: true, player: mapPlayerPayload(created) }, authHeaders);
+    return jsonResponse(
+      201,
+      { ok: true, player: mapPlayerPayload(created, { includeReviewNotes: true }) },
+      authHeaders,
+    );
   }
 
   if (request.method === "PATCH" && url.pathname.startsWith("/api/players/")) {
@@ -2282,7 +2317,11 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       );
     }
 
-    return jsonResponse(200, { ok: true, player: mapPlayerPayload(updated) }, authHeaders);
+    return jsonResponse(
+      200,
+      { ok: true, player: mapPlayerPayload(updated, { includeReviewNotes: true }) },
+      authHeaders,
+    );
   }
 
   // fixtures and results

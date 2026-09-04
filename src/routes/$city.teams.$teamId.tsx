@@ -1,4 +1,4 @@
-import { createFileRoute, Link, notFound } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowLeft } from "lucide-react";
 
 import { FormPill, TeamCrest, EmptyState } from "@/components/devkics/brand";
@@ -11,10 +11,6 @@ import { computeStandings } from "@/lib/devkics/standings";
 import { canonicalLink, seoMeta } from "@/lib/seo";
 
 export const Route = createFileRoute("/$city/teams/$teamId")({
-  beforeLoad: ({ params }) => {
-    // Seed teams are always resolvable server-side; user-created teams resolve client-side.
-    if (params.teamId.startsWith("tm-") === false) throw notFound();
-  },
   head: ({ params }) => {
     const team = seedTeams.find((t) => t.id === params.teamId);
     const title = `${team?.name ?? "Team"} — DevKics Abuja`;

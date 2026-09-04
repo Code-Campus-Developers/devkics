@@ -261,6 +261,21 @@ describe("Phase 1 API integration", () => {
     const registerAdminRes = await handleApiRequest(registerAdminReq);
     expect(registerAdminRes?.status).toBe(400);
 
+    const registerOrganizerReq = new Request("http://localhost:8080/api/auth/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Unauthorized Organizer",
+        email: "unauthorized-organizer@devkics.com",
+        password: "devkics123",
+        role: "organizer",
+        citySlug: "abuja",
+      }),
+    });
+
+    const registerOrganizerRes = await handleApiRequest(registerOrganizerReq);
+    expect(registerOrganizerRes?.status).toBe(400);
+
     const managerRegisterReq = new Request("http://localhost:8080/api/auth/register", {
       method: "POST",
       headers: { "content-type": "application/json" },
