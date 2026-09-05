@@ -179,6 +179,7 @@ export interface Team {
     | "disqualified"
     | "locked";
   reviewNotes?: string | null;
+  squadLockedAt?: string | null;
 }
 
 export interface Player {

@@ -375,6 +375,7 @@ const registerSchema = z.object({
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
+  portal: z.enum(["standard", "admin"]).optional(),
 });
 
 const cityStatusSchema = z.object({
@@ -512,13 +513,36 @@ const playerCreateSchema = z.object({
   position: z.string().min(1),
   number: z.number().int().min(1).max(99).optional(),
   role: z.string().optional(),
+  status: z.enum(["invited", "pending-approval", "approved"]).optional(),
   dateOfBirth: z.string().optional(),
   gender: z.string().optional(),
   emergencyContactName: z.string().optional(),
   emergencyContactPhone: z.string().optional(),
   medicalDeclaration: z.string().max(2000).optional(),
+  waiverAccepted: z.boolean().optional().default(false),
+  mediaConsentAccepted: z.boolean().optional(),
+});
+
+const playerInvitationRespondSchema = z.object({
+  action: z.enum(["accept", "decline"]),
+  waiverAccepted: z.boolean().optional(),
+  mediaConsentAccepted: z.boolean().optional(),
+  dateOfBirth: z.string().optional(),
+  emergencyContactName: z.string().optional(),
+  emergencyContactPhone: z.string().optional(),
+  medicalDeclaration: z.string().max(2000).optional(),
+});
+
+const playerJoinRequestSchema = z.object({
+  position: z.string().min(1),
+  number: z.number().int().min(1).max(99).optional(),
+  role: z.string().optional(),
   waiverAccepted: z.boolean(),
   mediaConsentAccepted: z.boolean().optional(),
+  dateOfBirth: z.string().optional(),
+  emergencyContactName: z.string().optional(),
+  emergencyContactPhone: z.string().optional(),
+  medicalDeclaration: z.string().max(2000).optional(),
 });
 
 const playerReviewSchema = z.object({
@@ -876,6 +900,111 @@ async function maybeAdvanceKnockout(fixtureId: string) {
   }
 }
 
+async function claimMatchingPlayerInvitations(
+  prismaClient: typeof prisma,
+  user: User,
+): Promise<User> {
+  const normalizedEmail = user.email.toLowerCase().trim();
+  let current = user;
+
+  // Audit stale / wrong-account playerId and teamId
+  if (current.playerId) {
+    const activePlayer = await prismaClient.player.findUnique({
+      where: { id: current.playerId },
+      select: { id: true, status: true, teamId: true, userId: true },
+    });
+    if (
+      !activePlayer ||
+      activePlayer.status !== PlayerStatus.APPROVED ||
+      (activePlayer.userId && activePlayer.userId !== current.id)
+    ) {
+      current = await prismaClient.user.update({
+        where: { id: current.id },
+        data: { playerId: null, teamId: null },
+      });
+    } else if (current.teamId !== activePlayer.teamId) {
+      current = await prismaClient.user.update({
+        where: { id: current.id },
+        data: { teamId: activePlayer.teamId },
+      });
+    }
+  }
+
+  // Audit orphaned teamId (teamId set without playerId on a non-manager user)
+  if (current.teamId && !current.playerId) {
+    const isManager = await prismaClient.team.findFirst({
+      where: { id: current.teamId, managerUserId: current.id },
+      select: { id: true },
+    });
+    if (!isManager) {
+      current = await prismaClient.user.update({
+        where: { id: current.id },
+        data: { teamId: null },
+      });
+    }
+  }
+
+  // Resolve user city if assigned
+  let userCityId: string | null = null;
+  if (current.citySlug) {
+    const city = await prismaClient.city.findUnique({
+      where: { slug: current.citySlug },
+      select: { id: true },
+    });
+    if (city) userCityId = city.id;
+  }
+
+  const unclaimed = await prismaClient.player.findMany({
+    where: {
+      email: normalizedEmail,
+      userId: null,
+      status: { in: [PlayerStatus.INVITED, PlayerStatus.PENDING_APPROVAL, PlayerStatus.APPROVED] },
+    },
+    include: { team: { select: { tournament: { select: { cityId: true } } } } },
+    orderBy: { createdAt: "desc" },
+  });
+
+  for (const inv of unclaimed) {
+    // Cross-city boundary: do not claim invitations from another city if user city is set
+    if (userCityId && inv.team.tournament.cityId !== userCityId) {
+      continue;
+    }
+
+    await prismaClient.player.update({
+      where: { id: inv.id },
+      data: { userId: current.id },
+    });
+
+    // If an unclaimed invite was already approved and user has no squad, link it
+    if (inv.status === PlayerStatus.APPROVED && !current.playerId) {
+      current = await prismaClient.user.update({
+        where: { id: current.id },
+        data: { playerId: inv.id, teamId: inv.teamId },
+      });
+    }
+  }
+
+  // If user still has no playerId, check if an existing APPROVED player record is already linked to this user
+  if (!current.playerId) {
+    const activeApproved = await prismaClient.player.findFirst({
+      where: {
+        userId: current.id,
+        status: PlayerStatus.APPROVED,
+        ...(userCityId ? { team: { tournament: { cityId: userCityId } } } : {}),
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    if (activeApproved) {
+      current = await prismaClient.user.update({
+        where: { id: current.id },
+        data: { playerId: activeApproved.id, teamId: activeApproved.teamId },
+      });
+    }
+  }
+
+  return current;
+}
+
 export async function handleApiRequest(request: Request): Promise<Response | null> {
   const url = new URL(request.url);
 
@@ -1002,12 +1131,17 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       },
     });
 
-    const issued = await issueSession(user, [assignment]);
+    const registeredUser = await claimMatchingPlayerInvitations(prisma, user);
+    const issued = await issueSession(registeredUser, [assignment]);
     const headers = new Headers(authHeaders);
     headers.append("set-cookie", issued.accessCookie);
     headers.append("set-cookie", issued.refreshCookie);
 
-    return jsonResponse(201, { ok: true, user: toPublicUser(user, [assignment]) }, headers);
+    return jsonResponse(
+      201,
+      { ok: true, user: toPublicUser(registeredUser, [assignment]) },
+      headers,
+    );
   }
 
   if (request.method === "GET" && url.pathname === "/api/legal/consent-status") {
@@ -1070,12 +1204,36 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
     }
 
     const assignments = await prisma.roleAssignment.findMany({ where: { userId: user.id } });
-    const issued = await issueSession(user, assignments);
+
+    if (parsed.data.portal === "admin") {
+      if (!isAdmin(user, assignments)) {
+        return jsonResponse(
+          403,
+          { ok: false, error: "Access denied. Administrator privileges required." },
+          authHeaders,
+        );
+      }
+    } else if (parsed.data.portal === "standard") {
+      if (isAdmin(user, assignments)) {
+        return jsonResponse(
+          403,
+          { ok: false, error: "Administrator accounts must sign in at /admin/login." },
+          authHeaders,
+        );
+      }
+    }
+
+    const authenticatedUser = await claimMatchingPlayerInvitations(prisma, user);
+    const issued = await issueSession(authenticatedUser, assignments);
     const headers = new Headers(authHeaders);
     headers.append("set-cookie", issued.accessCookie);
     headers.append("set-cookie", issued.refreshCookie);
 
-    return jsonResponse(200, { ok: true, user: toPublicUser(user, assignments) }, headers);
+    return jsonResponse(
+      200,
+      { ok: true, user: toPublicUser(authenticatedUser, assignments) },
+      headers,
+    );
   }
 
   if (request.method === "POST" && url.pathname === "/api/auth/logout") {
@@ -2077,7 +2235,7 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
     const tournamentId = url.searchParams.get("tournamentId") ?? undefined;
     const teamId = url.searchParams.get("teamId") ?? undefined;
     const page = Number(url.searchParams.get("page") ?? "1");
-    const pageSize = Math.min(Number(url.searchParams.get("pageSize") ?? "30"), 50);
+    const pageSize = Math.min(Number(url.searchParams.get("pageSize") ?? "30"), 300);
 
     const where = {
       ...(teamId ? { teamId } : {}),
@@ -2092,7 +2250,7 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
           teamId: true,
           userId: true,
           fullName: true,
-          email: false,
+          email: true,
           position: true,
           number: true,
           role: true,
@@ -2141,31 +2299,86 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       return jsonResponse(400, { ok: false, error: "Invalid payload" }, authHeaders);
     }
 
-    if (!parsed.data.waiverAccepted) {
-      return jsonResponse(
-        400,
-        { ok: false, error: "Player waiver acceptance is required" },
-        authHeaders,
-      );
-    }
-
     const team = await prisma.team.findUnique({
       where: { id: parsed.data.teamId },
-      select: { id: true, status: true },
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        managerUserId: true,
+        squadLockedAt: true,
+        tournamentId: true,
+        tournament: { select: { cityId: true } },
+      },
     });
     if (!team) {
       return jsonResponse(404, { ok: false, error: "Team not found" }, authHeaders);
     }
-    if (team.status === TeamStatus.LOCKED || team.status === TeamStatus.DISQUALIFIED) {
+    if (
+      team.status === TeamStatus.LOCKED ||
+      team.status === TeamStatus.DISQUALIFIED ||
+      team.squadLockedAt
+    ) {
       return jsonResponse(409, { ok: false, error: "Team roster is not open" }, authHeaders);
+    }
+
+    const cityId = team.tournament.cityId;
+    const isTeamManager = team.managerUserId === auth.user.id;
+    const isInternal = await canAccessCityOperations(auth.user, auth.assignments, cityId);
+    if (!isTeamManager && !isInternal) {
+      return jsonResponse(
+        403,
+        {
+          ok: false,
+          error: "Forbidden. Only the team manager or authorized organizers can add players.",
+        },
+        authHeaders,
+      );
+    }
+
+    const email = parsed.data.email ? parsed.data.email.toLowerCase().trim() : null;
+
+    let targetUserId: string | null = null;
+    if (email) {
+      const existingUser = await prisma.user.findUnique({ where: { email } });
+      if (existingUser) {
+        targetUserId = existingUser.id;
+      }
+
+      const existingActivePlayer = await prisma.player.findFirst({
+        where: {
+          team: { tournamentId: team.tournamentId },
+          OR: [{ email }, ...(targetUserId ? [{ userId: targetUserId }] : [])],
+          status: {
+            in: [PlayerStatus.APPROVED, PlayerStatus.PENDING_APPROVAL, PlayerStatus.INVITED],
+          },
+        },
+      });
+      if (existingActivePlayer) {
+        return jsonResponse(
+          409,
+          {
+            ok: false,
+            error: "Player already has an active roster spot or invitation in this tournament",
+          },
+          authHeaders,
+        );
+      }
+    }
+
+    let initialStatus: PlayerStatus = PlayerStatus.INVITED;
+    if (isInternal && parsed.data.status) {
+      initialStatus = statusFromKebab(parsed.data.status, Object.values(PlayerStatus));
+    } else if (!email && parsed.data.waiverAccepted) {
+      initialStatus = PlayerStatus.PENDING_APPROVAL;
     }
 
     const created = await prisma.player.create({
       data: {
         teamId: parsed.data.teamId,
-        userId: auth.user.id,
+        userId: targetUserId,
         fullName: parsed.data.fullName,
-        email: parsed.data.email ?? null,
+        email,
         position: parsed.data.position,
         number: parsed.data.number ?? null,
         role: parsed.data.role ?? null,
@@ -2174,9 +2387,9 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         emergencyContactName: parsed.data.emergencyContactName ?? null,
         emergencyContactPhone: parsed.data.emergencyContactPhone ?? null,
         medicalDeclaration: parsed.data.medicalDeclaration ?? null,
-        waiverAcceptedAt: new Date(),
+        waiverAcceptedAt: parsed.data.waiverAccepted ? new Date() : null,
         mediaConsentAcceptedAt: parsed.data.mediaConsentAccepted ? new Date() : null,
-        status: PlayerStatus.PENDING_APPROVAL,
+        status: initialStatus,
       },
       select: {
         id: true,
@@ -2193,26 +2406,41 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       },
     });
 
-    const playerTeam = await prisma.team.findUnique({
-      where: { id: created.teamId },
-      select: { tournament: { select: { cityId: true } } },
-    });
     await writeAuditLog(prisma, {
       actorId: auth.user.id,
       action: "player.created",
       resourceType: "player",
       resourceId: created.id,
-      cityId: playerTeam?.tournament.cityId ?? null,
+      cityId,
       newValue: {
         fullName: created.fullName,
         position: created.position,
         status: created.status,
+        email: created.email,
         consent: {
-          waiverAccepted: true,
+          waiverAccepted: Boolean(parsed.data.waiverAccepted),
           mediaConsentAccepted: Boolean(parsed.data.mediaConsentAccepted),
         },
       },
     });
+
+    if (created.status === PlayerStatus.INVITED) {
+      await dispatchNotification(
+        prisma,
+        {
+          recipientUserId: targetUserId,
+          recipientEmail: email,
+          createdByUserId: auth.user.id,
+          type: "team.invitation",
+          title: `Invitation to join ${team.name}`,
+          body: `${auth.user.name} has invited you to join ${team.name} as a ${created.position}.`,
+          resourceType: "player",
+          resourceId: created.id,
+          email: Boolean(email),
+        },
+        getEmailTransport(),
+      );
+    }
 
     return jsonResponse(
       201,
@@ -2221,7 +2449,413 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
     );
   }
 
-  if (request.method === "PATCH" && url.pathname.startsWith("/api/players/")) {
+  // Player invitation accept/decline endpoint
+  if (
+    request.method === "POST" &&
+    (url.pathname.match(/^\/api\/players\/[^/]+\/invitation$/) ||
+      url.pathname.match(/^\/api\/players\/[^/]+\/respond$/))
+  ) {
+    const guard = applyEndpointRateLimit("players:respond", TOURNAMENT_MUTATION_RATE_LIMIT);
+    if (guard) return guard;
+
+    if (!auth.user) {
+      return jsonResponse(401, { ok: false, error: "Unauthorized" }, authHeaders);
+    }
+
+    const segments = url.pathname.split("/");
+    const playerId = decodeURIComponent(segments[3] ?? "");
+
+    const player = await prisma.player.findUnique({
+      where: { id: playerId },
+      include: {
+        team: {
+          select: {
+            id: true,
+            name: true,
+            status: true,
+            squadLockedAt: true,
+            managerUserId: true,
+            tournamentId: true,
+            tournament: { select: { cityId: true } },
+          },
+        },
+      },
+    });
+
+    if (!player) {
+      return jsonResponse(404, { ok: false, error: "Invitation not found" }, authHeaders);
+    }
+
+    if (player.status !== PlayerStatus.INVITED) {
+      return jsonResponse(
+        409,
+        { ok: false, error: "Invitation is no longer pending" },
+        authHeaders,
+      );
+    }
+
+    const normalizedUserEmail = auth.user.email.toLowerCase().trim();
+    const normalizedPlayerEmail = player.email ? player.email.toLowerCase().trim() : null;
+    const isOwner =
+      player.userId === auth.user.id ||
+      (normalizedPlayerEmail !== null && normalizedPlayerEmail === normalizedUserEmail);
+    if (!isOwner) {
+      return jsonResponse(
+        403,
+        { ok: false, error: "Forbidden. You are not the recipient of this invitation." },
+        authHeaders,
+      );
+    }
+
+    const body = await parseJsonBody(request);
+    const parsed = playerInvitationRespondSchema.safeParse(body);
+    if (!parsed.success) {
+      return jsonResponse(400, { ok: false, error: "Invalid payload" }, authHeaders);
+    }
+
+    if (parsed.data.action === "accept") {
+      if (!parsed.data.waiverAccepted && !player.waiverAcceptedAt) {
+        return jsonResponse(
+          400,
+          {
+            ok: false,
+            error: "Participation waiver acceptance is required to accept an invitation",
+          },
+          authHeaders,
+        );
+      }
+
+      if (
+        player.team.status === TeamStatus.LOCKED ||
+        player.team.status === TeamStatus.DISQUALIFIED ||
+        player.team.squadLockedAt
+      ) {
+        return jsonResponse(409, { ok: false, error: "Team roster is locked" }, authHeaders);
+      }
+
+      const existingSquad = await prisma.player.findFirst({
+        where: {
+          id: { not: player.id },
+          team: { tournamentId: player.team.tournamentId },
+          OR: [{ userId: auth.user.id }, { email: normalizedUserEmail }],
+          status: {
+            in: [PlayerStatus.APPROVED, PlayerStatus.PENDING_APPROVAL],
+          },
+        },
+        include: { team: { select: { name: true } } },
+      });
+
+      if (existingSquad) {
+        return jsonResponse(
+          409,
+          {
+            ok: false,
+            error: `You already have an active or pending squad in this tournament with ${existingSquad.team.name}.`,
+          },
+          authHeaders,
+        );
+      }
+
+      const updated = await prisma.player.update({
+        where: { id: player.id },
+        data: {
+          status: PlayerStatus.PENDING_APPROVAL,
+          userId: auth.user.id,
+          email: normalizedUserEmail,
+          waiverAcceptedAt: new Date(),
+          mediaConsentAcceptedAt: parsed.data.mediaConsentAccepted
+            ? new Date()
+            : player.mediaConsentAcceptedAt,
+          ...(parsed.data.dateOfBirth ? { dateOfBirth: new Date(parsed.data.dateOfBirth) } : {}),
+          ...(parsed.data.emergencyContactName
+            ? { emergencyContactName: parsed.data.emergencyContactName }
+            : {}),
+          ...(parsed.data.emergencyContactPhone
+            ? { emergencyContactPhone: parsed.data.emergencyContactPhone }
+            : {}),
+          ...(parsed.data.medicalDeclaration
+            ? { medicalDeclaration: parsed.data.medicalDeclaration }
+            : {}),
+        },
+        select: {
+          id: true,
+          teamId: true,
+          userId: true,
+          fullName: true,
+          email: true,
+          position: true,
+          number: true,
+          role: true,
+          status: true,
+          reviewNotes: true,
+          submittedAt: true,
+        },
+      });
+
+      await writeAuditLog(prisma, {
+        actorId: auth.user.id,
+        action: "player.invitation.accepted",
+        resourceType: "player",
+        resourceId: updated.id,
+        cityId: player.team.tournament.cityId,
+        newValue: { status: updated.status, teamId: updated.teamId },
+      });
+
+      if (player.team.managerUserId) {
+        await dispatchNotification(
+          prisma,
+          {
+            recipientUserId: player.team.managerUserId,
+            recipientEmail: null,
+            createdByUserId: auth.user.id,
+            type: "team.invitation_accepted",
+            title: "Player accepted invitation",
+            body: `${auth.user.name} accepted the invitation to join ${player.team.name} and is pending roster confirmation.`,
+            resourceType: "player",
+            resourceId: updated.id,
+            email: true,
+          },
+          getEmailTransport(),
+        );
+      }
+
+      return jsonResponse(
+        200,
+        { ok: true, player: mapPlayerPayload(updated, { includeReviewNotes: true }) },
+        authHeaders,
+      );
+    } else {
+      const updated = await prisma.player.update({
+        where: { id: player.id },
+        data: {
+          status: PlayerStatus.WITHDRAWN,
+          reviewNotes: "Declined by player",
+        },
+        select: {
+          id: true,
+          teamId: true,
+          userId: true,
+          fullName: true,
+          email: true,
+          position: true,
+          number: true,
+          role: true,
+          status: true,
+          reviewNotes: true,
+          submittedAt: true,
+        },
+      });
+
+      if (player.userId) {
+        await prisma.user.updateMany({
+          where: {
+            id: player.userId,
+            playerId: player.id,
+            teamId: player.teamId,
+          },
+          data: {
+            playerId: null,
+            teamId: null,
+          },
+        });
+      }
+
+      await writeAuditLog(prisma, {
+        actorId: auth.user.id,
+        action: "player.invitation.declined",
+        resourceType: "player",
+        resourceId: updated.id,
+        cityId: player.team.tournament.cityId,
+        newValue: { status: updated.status },
+      });
+
+      if (player.team.managerUserId) {
+        await dispatchNotification(
+          prisma,
+          {
+            recipientUserId: player.team.managerUserId,
+            recipientEmail: null,
+            createdByUserId: auth.user.id,
+            type: "team.invitation_declined",
+            title: "Player declined invitation",
+            body: `${auth.user.name} declined the invitation to join ${player.team.name}.`,
+            resourceType: "player",
+            resourceId: updated.id,
+            email: true,
+          },
+          getEmailTransport(),
+        );
+      }
+
+      return jsonResponse(
+        200,
+        { ok: true, player: mapPlayerPayload(updated, { includeReviewNotes: true }) },
+        authHeaders,
+      );
+    }
+  }
+
+  // Player request-to-join endpoint
+  if (request.method === "POST" && url.pathname.match(/^\/api\/teams\/[^/]+\/join-requests$/)) {
+    const guard = applyEndpointRateLimit("players:join_request", TOURNAMENT_MUTATION_RATE_LIMIT);
+    if (guard) return guard;
+
+    if (!auth.user) {
+      return jsonResponse(401, { ok: false, error: "Unauthorized" }, authHeaders);
+    }
+
+    const isPlayer = hasScopedRole(auth.assignments, Role.PLAYER);
+    if (!isPlayer) {
+      return jsonResponse(
+        403,
+        { ok: false, error: "Forbidden. Only registered players can submit join requests." },
+        authHeaders,
+      );
+    }
+
+    const segments = url.pathname.split("/");
+    const teamId = decodeURIComponent(segments[3] ?? "");
+
+    const team = await prisma.team.findUnique({
+      where: { id: teamId },
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        squadLockedAt: true,
+        managerUserId: true,
+        tournamentId: true,
+        tournament: { select: { cityId: true } },
+      },
+    });
+
+    if (!team) {
+      return jsonResponse(404, { ok: false, error: "Team not found" }, authHeaders);
+    }
+
+    if (
+      team.status === TeamStatus.LOCKED ||
+      team.status === TeamStatus.DISQUALIFIED ||
+      team.squadLockedAt
+    ) {
+      return jsonResponse(409, { ok: false, error: "Team roster is not open" }, authHeaders);
+    }
+
+    const normalizedUserEmail = auth.user.email.toLowerCase().trim();
+
+    const existingMembership = await prisma.player.findFirst({
+      where: {
+        team: { tournamentId: team.tournamentId },
+        OR: [{ userId: auth.user.id }, { email: normalizedUserEmail }],
+        status: { in: [PlayerStatus.APPROVED, PlayerStatus.PENDING_APPROVAL] },
+      },
+      include: { team: { select: { name: true } } },
+    });
+
+    if (existingMembership) {
+      return jsonResponse(
+        409,
+        {
+          ok: false,
+          error: `You already have an active or pending squad membership with ${existingMembership.team.name}.`,
+        },
+        authHeaders,
+      );
+    }
+
+    const body = await parseJsonBody(request);
+    const parsed = playerJoinRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      return jsonResponse(400, { ok: false, error: "Invalid payload" }, authHeaders);
+    }
+
+    if (!parsed.data.waiverAccepted) {
+      return jsonResponse(
+        400,
+        { ok: false, error: "Player waiver acceptance is required" },
+        authHeaders,
+      );
+    }
+
+    const created = await prisma.player.create({
+      data: {
+        teamId: team.id,
+        userId: auth.user.id,
+        fullName: auth.user.name,
+        email: normalizedUserEmail,
+        position: parsed.data.position,
+        number: parsed.data.number ?? null,
+        role: parsed.data.role ?? null,
+        dateOfBirth: parsed.data.dateOfBirth ? new Date(parsed.data.dateOfBirth) : null,
+        emergencyContactName: parsed.data.emergencyContactName ?? null,
+        emergencyContactPhone: parsed.data.emergencyContactPhone ?? null,
+        medicalDeclaration: parsed.data.medicalDeclaration ?? null,
+        waiverAcceptedAt: new Date(),
+        mediaConsentAcceptedAt: parsed.data.mediaConsentAccepted ? new Date() : null,
+        status: PlayerStatus.PENDING_APPROVAL,
+        reviewNotes: "Player submitted join request",
+      },
+      select: {
+        id: true,
+        teamId: true,
+        userId: true,
+        fullName: true,
+        email: true,
+        position: true,
+        number: true,
+        role: true,
+        status: true,
+        reviewNotes: true,
+        submittedAt: true,
+      },
+    });
+
+    await writeAuditLog(prisma, {
+      actorId: auth.user.id,
+      action: "player.join_request.created",
+      resourceType: "player",
+      resourceId: created.id,
+      cityId: team.tournament.cityId,
+      newValue: {
+        fullName: created.fullName,
+        position: created.position,
+        status: created.status,
+        teamId: team.id,
+      },
+    });
+
+    if (team.managerUserId) {
+      await dispatchNotification(
+        prisma,
+        {
+          recipientUserId: team.managerUserId,
+          recipientEmail: null,
+          createdByUserId: auth.user.id,
+          type: "team.join_request",
+          title: `Join request for ${team.name}`,
+          body: `${auth.user.name} has requested to join ${team.name} as a ${created.position}.`,
+          resourceType: "player",
+          resourceId: created.id,
+          email: true,
+        },
+        getEmailTransport(),
+      );
+    }
+
+    return jsonResponse(
+      201,
+      { ok: true, player: mapPlayerPayload(created, { includeReviewNotes: true }) },
+      authHeaders,
+    );
+  }
+
+  // PATCH /api/players/:id (Manager / Organizer player review and roster management)
+  if (
+    request.method === "PATCH" &&
+    url.pathname.startsWith("/api/players/") &&
+    !url.pathname.includes("/invitation") &&
+    !url.pathname.includes("/respond")
+  ) {
     const guard = applyEndpointRateLimit("players:review", TOURNAMENT_MUTATION_RATE_LIMIT);
     if (guard) return guard;
 
@@ -2234,10 +2868,23 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       where: { id: playerId },
       select: {
         id: true,
+        teamId: true,
+        userId: true,
         status: true,
         email: true,
-        user: { select: { email: true } },
-        team: { select: { tournament: { select: { cityId: true } } } },
+        fullName: true,
+        waiverAcceptedAt: true,
+        user: { select: { id: true, email: true } },
+        team: {
+          select: {
+            id: true,
+            name: true,
+            managerUserId: true,
+            status: true,
+            squadLockedAt: true,
+            tournament: { select: { cityId: true } },
+          },
+        },
       },
     });
 
@@ -2246,8 +2893,19 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
     }
 
     const cityId = existing.team.tournament.cityId;
-    if (!(await canAccessCityOperations(auth.user, auth.assignments, cityId))) {
+    const isTeamManager = existing.team.managerUserId === auth.user.id;
+    const isInternal = await canAccessCityOperations(auth.user, auth.assignments, cityId);
+    if (!isTeamManager && !isInternal) {
       return jsonResponse(403, { ok: false, error: "Forbidden" }, authHeaders);
+    }
+
+    if (
+      !isInternal &&
+      (existing.team.status === TeamStatus.LOCKED ||
+        existing.team.status === TeamStatus.DISQUALIFIED ||
+        existing.team.squadLockedAt)
+    ) {
+      return jsonResponse(409, { ok: false, error: "Team roster is locked" }, authHeaders);
     }
 
     const body = await parseJsonBody(request);
@@ -2263,6 +2921,14 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       return jsonResponse(
         409,
         { ok: false, error: error instanceof Error ? error.message : "Invalid transition" },
+        authHeaders,
+      );
+    }
+
+    if (nextStatus === PlayerStatus.APPROVED && !existing.waiverAcceptedAt) {
+      return jsonResponse(
+        400,
+        { ok: false, error: "Cannot approve player without accepted participation waiver" },
         authHeaders,
       );
     }
@@ -2290,6 +2956,33 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       },
     });
 
+    if (existing.userId) {
+      if (nextStatus === PlayerStatus.APPROVED) {
+        await prisma.user.update({
+          where: { id: existing.userId },
+          data: {
+            playerId: updated.id,
+            teamId: updated.teamId,
+          },
+        });
+      } else if (
+        nextStatus === PlayerStatus.WITHDRAWN ||
+        nextStatus === PlayerStatus.DISQUALIFIED
+      ) {
+        await prisma.user.updateMany({
+          where: {
+            id: existing.userId,
+            playerId: existing.id,
+            teamId: existing.teamId,
+          },
+          data: {
+            playerId: null,
+            teamId: null,
+          },
+        });
+      }
+    }
+
     await writeAuditLog(prisma, {
       actorId: auth.user.id,
       action: "player.reviewed",
@@ -2299,19 +2992,37 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       oldValue: { status: existing.status },
       newValue: { status: updated.status, reviewNotes: updated.reviewNotes },
     });
-    if (nextStatus === PlayerStatus.APPROVED || nextStatus === PlayerStatus.DISQUALIFIED) {
+
+    const targetRecipientEmail = existing.user?.email ?? existing.email;
+    if (nextStatus === PlayerStatus.APPROVED) {
       await dispatchNotification(
         prisma,
         {
-          recipientUserId: null,
-          recipientEmail: existing.user?.email ?? existing.email,
+          recipientUserId: existing.userId,
+          recipientEmail: targetRecipientEmail,
+          createdByUserId: auth.user.id,
+          type: "player.reviewed",
+          title: "Player registration approved",
+          body: `Your squad membership for ${existing.team.name} has been approved.`,
+          resourceType: "player",
+          resourceId: updated.id,
+          email: Boolean(targetRecipientEmail),
+        },
+        getEmailTransport(),
+      );
+    } else if (nextStatus === PlayerStatus.WITHDRAWN || nextStatus === PlayerStatus.DISQUALIFIED) {
+      await dispatchNotification(
+        prisma,
+        {
+          recipientUserId: existing.userId,
+          recipientEmail: targetRecipientEmail,
           createdByUserId: auth.user.id,
           type: "player.reviewed",
           title: "Player registration updated",
-          body: `Your player registration is ${parsed.data.status}.`,
+          body: `Your squad membership for ${existing.team.name} is ${parsed.data.status}.`,
           resourceType: "player",
           resourceId: updated.id,
-          email: true,
+          email: Boolean(targetRecipientEmail),
         },
         getEmailTransport(),
       );

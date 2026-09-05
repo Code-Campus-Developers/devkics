@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as CityRouteImport } from './routes/$city'
+import { Route as AdminRouteImport } from './routes/admin'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as CitiesRouteImport } from './routes/cities'
 import { Route as DashboardRouteImport } from './routes/dashboard'
@@ -27,6 +28,8 @@ import { Route as CitySponsorsRouteImport } from './routes/$city.sponsors'
 import { Route as CityStandingsRouteImport } from './routes/$city.standings'
 import { Route as CityTeamsRouteImport } from './routes/$city.teams'
 import { Route as CityTournamentRouteImport } from './routes/$city.tournament'
+import { Route as AdminIndexRouteImport } from './routes/admin.index'
+import { Route as AdminLoginRouteImport } from './routes/admin.login'
 import { Route as CityTeamsIndexRouteImport } from './routes/$city.teams.index'
 import { Route as CityTeamsTeamIdRouteImport } from './routes/$city.teams.$teamId'
 
@@ -38,6 +41,11 @@ const IndexRoute = IndexRouteImport.update({
 const CityRoute = CityRouteImport.update({
   id: '/$city',
   path: '/$city',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthRoute = AuthRouteImport.update({
@@ -120,6 +128,16 @@ const CityTournamentRoute = CityTournamentRouteImport.update({
   path: '/tournament',
   getParentRoute: () => CityRoute,
 } as any)
+const AdminIndexRoute = AdminIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminLoginRoute = AdminLoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => AdminRoute,
+} as any)
 const CityTeamsIndexRoute = CityTeamsIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -134,6 +152,7 @@ const CityTeamsTeamIdRoute = CityTeamsTeamIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/$city': typeof CityRouteWithChildren
+  '/admin': typeof AdminRouteWithChildren
   '/auth': typeof AuthRoute
   '/cities': typeof CitiesRoute
   '/dashboard': typeof DashboardRoute
@@ -149,7 +168,9 @@ export interface FileRoutesByFullPath {
   '/$city/standings': typeof CityStandingsRoute
   '/$city/teams': typeof CityTeamsRouteWithChildren
   '/$city/tournament': typeof CityTournamentRoute
+  '/admin/login': typeof AdminLoginRoute
   '/$city/': typeof CityIndexRoute
+  '/admin/': typeof AdminIndexRoute
   '/$city/teams/$teamId': typeof CityTeamsTeamIdRoute
   '/$city/teams/': typeof CityTeamsIndexRoute
 }
@@ -169,7 +190,9 @@ export interface FileRoutesByTo {
   '/$city/sponsors': typeof CitySponsorsRoute
   '/$city/standings': typeof CityStandingsRoute
   '/$city/tournament': typeof CityTournamentRoute
+  '/admin/login': typeof AdminLoginRoute
   '/$city': typeof CityIndexRoute
+  '/admin': typeof AdminIndexRoute
   '/$city/teams/$teamId': typeof CityTeamsTeamIdRoute
   '/$city/teams': typeof CityTeamsIndexRoute
 }
@@ -177,6 +200,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/$city': typeof CityRouteWithChildren
+  '/admin': typeof AdminRouteWithChildren
   '/auth': typeof AuthRoute
   '/cities': typeof CitiesRoute
   '/dashboard': typeof DashboardRoute
@@ -192,7 +216,9 @@ export interface FileRoutesById {
   '/$city/standings': typeof CityStandingsRoute
   '/$city/teams': typeof CityTeamsRouteWithChildren
   '/$city/tournament': typeof CityTournamentRoute
+  '/admin/login': typeof AdminLoginRoute
   '/$city/': typeof CityIndexRoute
+  '/admin/': typeof AdminIndexRoute
   '/$city/teams/$teamId': typeof CityTeamsTeamIdRoute
   '/$city/teams/': typeof CityTeamsIndexRoute
 }
@@ -201,6 +227,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/$city'
+    | '/admin'
     | '/auth'
     | '/cities'
     | '/dashboard'
@@ -216,7 +243,9 @@ export interface FileRouteTypes {
     | '/$city/standings'
     | '/$city/teams'
     | '/$city/tournament'
+    | '/admin/login'
     | '/$city/'
+    | '/admin/'
     | '/$city/teams/$teamId'
     | '/$city/teams/'
   fileRoutesByTo: FileRoutesByTo
@@ -236,13 +265,16 @@ export interface FileRouteTypes {
     | '/$city/sponsors'
     | '/$city/standings'
     | '/$city/tournament'
+    | '/admin/login'
     | '/$city'
+    | '/admin'
     | '/$city/teams/$teamId'
     | '/$city/teams'
   id:
     | '__root__'
     | '/'
     | '/$city'
+    | '/admin'
     | '/auth'
     | '/cities'
     | '/dashboard'
@@ -258,7 +290,9 @@ export interface FileRouteTypes {
     | '/$city/standings'
     | '/$city/teams'
     | '/$city/tournament'
+    | '/admin/login'
     | '/$city/'
+    | '/admin/'
     | '/$city/teams/$teamId'
     | '/$city/teams/'
   fileRoutesById: FileRoutesById
@@ -266,6 +300,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CityRoute: typeof CityRouteWithChildren
+  AdminRoute: typeof AdminRouteWithChildren
   AuthRoute: typeof AuthRoute
   CitiesRoute: typeof CitiesRoute
   DashboardRoute: typeof DashboardRoute
@@ -288,6 +323,13 @@ declare module '@tanstack/react-router' {
       path: '/$city'
       fullPath: '/$city'
       preLoaderRoute: typeof CityRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/auth': {
@@ -402,6 +444,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CityTournamentRouteImport
       parentRoute: typeof CityRoute
     }
+    '/admin/': {
+      id: '/admin/'
+      path: '/'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof AdminIndexRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/login': {
+      id: '/admin/login'
+      path: '/login'
+      fullPath: '/admin/login'
+      preLoaderRoute: typeof AdminLoginRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/$city/teams/': {
       id: '/$city/teams/'
       path: '/'
@@ -461,9 +517,22 @@ const CityRouteChildren: CityRouteChildren = {
 
 const CityRouteWithChildren = CityRoute._addFileChildren(CityRouteChildren)
 
+interface AdminRouteChildren {
+  AdminLoginRoute: typeof AdminLoginRoute
+  AdminIndexRoute: typeof AdminIndexRoute
+}
+
+const AdminRouteChildren: AdminRouteChildren = {
+  AdminLoginRoute: AdminLoginRoute,
+  AdminIndexRoute: AdminIndexRoute,
+}
+
+const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CityRoute: CityRouteWithChildren,
+  AdminRoute: AdminRouteWithChildren,
   AuthRoute: AuthRoute,
   CitiesRoute: CitiesRoute,
   DashboardRoute: DashboardRoute,

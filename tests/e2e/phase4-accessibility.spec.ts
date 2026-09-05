@@ -67,7 +67,7 @@ test.describe("Phase 4.2 Accessibility & Keyboard Navigation", () => {
 
     // Verify Sign in form controls have associated labels
     const emailInput = page.getByLabel("Email");
-    const passwordInput = page.getByLabel("Password");
+    const passwordInput = page.getByLabel("Password", { exact: true });
 
     await expect(emailInput).toBeVisible();
     await expect(passwordInput).toBeVisible();

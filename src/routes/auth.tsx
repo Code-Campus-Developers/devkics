@@ -2,6 +2,8 @@ import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { Eye, EyeOff } from "lucide-react";
+
 import { Logo } from "@/components/devkics/brand";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -37,6 +39,7 @@ function AuthPage() {
   const { login, register, currentUser, bootstrapped } = useDevKics();
   const navigate = useNavigate();
   const [signIn, setSignIn] = useState({ email: "", password: "" });
+  const [showSignInPassword, setShowSignInPassword] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(true);
   const [signUp, setSignUp] = useState({
     name: "",
@@ -44,6 +47,7 @@ function AuthPage() {
     password: "",
     role: "player" as "player" | "manager",
   });
+  const [showSignUpPassword, setShowSignUpPassword] = useState(false);
 
   useEffect(() => {
     if (bootstrapped && currentUser) navigate({ to: "/dashboard" });
@@ -101,7 +105,7 @@ function AuthPage() {
               onSubmit={async (e) => {
                 e.preventDefault();
                 try {
-                  const user = await login(signIn.email, signIn.password);
+                  const user = await login(signIn.email, signIn.password, "standard");
                   if (!user) {
                     toast.error("Invalid email or password");
                     return;
@@ -122,18 +126,35 @@ function AuthPage() {
                   value={signIn.email}
                   onChange={(e) => setSignIn({ ...signIn, email: e.target.value })}
                   placeholder="you@company.com"
+                  autoComplete="username"
                 />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="signin-password">Password</Label>
-                <Input
-                  id="signin-password"
-                  required
-                  type="password"
-                  value={signIn.password}
-                  onChange={(e) => setSignIn({ ...signIn, password: e.target.value })}
-                  placeholder="••••••••"
-                />
+                <div className="relative">
+                  <Input
+                    id="signin-password"
+                    required
+                    type={showSignInPassword ? "text" : "password"}
+                    value={signIn.password}
+                    onChange={(e) => setSignIn({ ...signIn, password: e.target.value })}
+                    placeholder="••••••••"
+                    className="pr-10"
+                    autoComplete="current-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowSignInPassword((prev) => !prev)}
+                    aria-label={showSignInPassword ? "Hide password" : "Show password"}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded-sm p-0.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  >
+                    {showSignInPassword ? (
+                      <EyeOff className="size-4" aria-hidden="true" />
+                    ) : (
+                      <Eye className="size-4" aria-hidden="true" />
+                    )}
+                  </button>
+                </div>
               </div>
               <Button type="submit" size="lg" className="w-full rounded-full">
                 Sign in
@@ -173,6 +194,7 @@ function AuthPage() {
                   value={signUp.name}
                   onChange={(e) => setSignUp({ ...signUp, name: e.target.value })}
                   placeholder="Ada Lovelace"
+                  autoComplete="name"
                 />
               </div>
               <div className="space-y-2">
@@ -184,18 +206,47 @@ function AuthPage() {
                   value={signUp.email}
                   onChange={(e) => setSignUp({ ...signUp, email: e.target.value })}
                   placeholder="you@company.com"
+                  autoComplete="email"
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="register-password">Password</Label>
-                <Input
-                  id="register-password"
-                  required
-                  type="password"
-                  value={signUp.password}
-                  onChange={(e) => setSignUp({ ...signUp, password: e.target.value })}
-                  placeholder="Choose a password"
-                />
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="register-password">Password</Label>
+                  <span
+                    id="register-password-requirements"
+                    className="text-xs text-muted-foreground"
+                  >
+                    8–72 characters
+                  </span>
+                </div>
+                <div className="relative">
+                  <Input
+                    id="register-password"
+                    required
+                    type={showSignUpPassword ? "text" : "password"}
+                    value={signUp.password}
+                    onChange={(e) => setSignUp({ ...signUp, password: e.target.value })}
+                    placeholder="Choose a password"
+                    className="pr-10"
+                    aria-describedby="register-password-requirements register-password-hint"
+                    autoComplete="new-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowSignUpPassword((prev) => !prev)}
+                    aria-label={showSignUpPassword ? "Hide password" : "Show password"}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded-sm p-0.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  >
+                    {showSignUpPassword ? (
+                      <EyeOff className="size-4" aria-hidden="true" />
+                    ) : (
+                      <Eye className="size-4" aria-hidden="true" />
+                    )}
+                  </button>
+                </div>
+                <p id="register-password-hint" className="text-[11px] text-muted-foreground">
+                  Must be between 8 and 72 characters.
+                </p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="register-role">I am joining as</Label>

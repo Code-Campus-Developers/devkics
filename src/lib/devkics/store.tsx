@@ -63,7 +63,7 @@ interface StoreValue {
   currentUser: User | null;
   bootstrapped: boolean;
   loadingTournamentOps: boolean;
-  login: (email: string, password: string) => Promise<User | null>;
+  login: (email: string, password: string, portal?: "standard" | "admin") => Promise<User | null>;
   register: (input: SignUpInput) => Promise<User | null>;
   logout: () => Promise<void>;
   refreshSession: () => Promise<void>;
@@ -72,6 +72,7 @@ interface StoreValue {
     shortName: string;
     company: string;
     group: string;
+    organizationId?: string;
   }) => Promise<Team>;
   updateTeam: (teamId: string, patch: Partial<Team>) => Promise<void>;
   reviewOrganization: (
@@ -82,13 +83,53 @@ interface StoreValue {
   addPlayer: (input: {
     teamId: string;
     name: string;
+    email?: string;
     position: Player["position"];
-    number: number;
-    role: string;
+    number?: number;
+    role?: string;
     status?: Player["status"];
+    waiverAccepted?: boolean;
   }) => Promise<Player>;
+  invitePlayer: (input: {
+    teamId: string;
+    name: string;
+    email: string;
+    position: Player["position"];
+    number?: number;
+    role?: string;
+  }) => Promise<Player>;
+  respondToInvitation: (
+    playerId: string,
+    action: "accept" | "decline",
+    options?: {
+      waiverAccepted?: boolean;
+      mediaConsentAccepted?: boolean;
+      dateOfBirth?: string;
+      emergencyContactName?: string;
+      emergencyContactPhone?: string;
+      medicalDeclaration?: string;
+    },
+  ) => Promise<Player>;
+  requestToJoinTeam: (
+    teamId: string,
+    input: {
+      position: Player["position"];
+      number?: number;
+      role?: string;
+      waiverAccepted: boolean;
+      mediaConsentAccepted?: boolean;
+      dateOfBirth?: string;
+      emergencyContactName?: string;
+      emergencyContactPhone?: string;
+      medicalDeclaration?: string;
+    },
+  ) => Promise<Player>;
   removePlayer: (playerId: string) => Promise<void>;
-  reviewPlayer: (playerId: string, status: Player["status"], reviewNotes?: string) => Promise<void>;
+  reviewPlayer: (
+    playerId: string,
+    status: "approved" | "withdrawn" | "suspended" | "disqualified",
+    reviewNotes?: string,
+  ) => Promise<void>;
   addFixture: (input: {
     homeTeamId: string;
     awayTeamId: string;
@@ -586,10 +627,10 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
   }, [queryClient]);
 
   const login = useCallback<StoreValue["login"]>(
-    async (email, password) => {
+    async (email, password, portal) => {
       const payload = await api<{ user: unknown }>("/api/auth/login", {
         method: "POST",
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, ...(portal ? { portal } : {}) }),
       });
       const user = toCurrentUser(payload.user);
       queryClient.setQueryData(QUERY_KEYS.auth, user);
@@ -648,7 +689,7 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
         method: "POST",
         body: JSON.stringify({
           tournamentId: activeTournamentId,
-          organizationId: approvedOrg.id,
+          organizationId: input.organizationId ?? approvedOrg.id,
           name: input.name,
           shortName: input.shortName,
           company: input.company,
@@ -695,12 +736,71 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({
           teamId: input.teamId,
           fullName: input.name,
+          email: input.email,
           position: input.position,
           number: input.number,
           role: input.role,
-          waiverAccepted: true,
+          status: input.status,
+          waiverAccepted: input.waiverAccepted ?? true,
         }),
       });
+      await refreshDomain();
+      return normalizePlayer(payload.player);
+    },
+    [refreshDomain],
+  );
+
+  const invitePlayer = useCallback<StoreValue["invitePlayer"]>(
+    async (input) => {
+      const payload = await api<{ player: Player }>("/api/players", {
+        method: "POST",
+        body: JSON.stringify({
+          teamId: input.teamId,
+          fullName: input.name,
+          email: input.email,
+          position: input.position,
+          number: input.number,
+          role: input.role,
+        }),
+      });
+      await refreshDomain();
+      return normalizePlayer(payload.player);
+    },
+    [refreshDomain],
+  );
+
+  const respondToInvitation = useCallback<StoreValue["respondToInvitation"]>(
+    async (playerId, action, options) => {
+      const payload = await api<{ player: Player }>(
+        `/api/players/${encodeURIComponent(playerId)}/invitation`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            action,
+            waiverAccepted: options?.waiverAccepted,
+            mediaConsentAccepted: options?.mediaConsentAccepted,
+            dateOfBirth: options?.dateOfBirth,
+            emergencyContactName: options?.emergencyContactName,
+            emergencyContactPhone: options?.emergencyContactPhone,
+            medicalDeclaration: options?.medicalDeclaration,
+          }),
+        },
+      );
+      await refreshDomain();
+      return normalizePlayer(payload.player);
+    },
+    [refreshDomain],
+  );
+
+  const requestToJoinTeam = useCallback<StoreValue["requestToJoinTeam"]>(
+    async (teamId, input) => {
+      const payload = await api<{ player: Player }>(
+        `/api/teams/${encodeURIComponent(teamId)}/join-requests`,
+        {
+          method: "POST",
+          body: JSON.stringify(input),
+        },
+      );
       await refreshDomain();
       return normalizePlayer(payload.player);
     },
@@ -967,6 +1067,9 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
     updateTeam,
     reviewOrganization,
     addPlayer,
+    invitePlayer,
+    respondToInvitation,
+    requestToJoinTeam,
     removePlayer,
     reviewPlayer,
     addFixture,

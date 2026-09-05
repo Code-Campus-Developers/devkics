@@ -1,0 +1,253 @@
+import { expect, test } from "@playwright/test";
+import { Role } from "@prisma/client";
+
+import { hashPassword } from "@/lib/server/auth";
+import { prisma } from "@/lib/server/db";
+
+async function createManagerWithTeam(suffix: string) {
+  let city = await prisma.city.findUnique({ where: { slug: "abuja" } });
+  if (!city) {
+    city = await prisma.city.create({
+      data: {
+        name: "Abuja",
+        slug: "abuja",
+        country: "Nigeria",
+        countryCode: "NG",
+        tagline: "Tech Capital",
+        accentImage: "/cities/abuja.jpg",
+        status: "LIVE",
+      },
+    });
+  }
+
+  let tournament = await prisma.tournament.findFirst({
+    where: { cityId: city.id },
+  });
+  if (!tournament) {
+    tournament = await prisma.tournament.create({
+      data: {
+        cityId: city.id,
+        name: "Abuja Tech Cup 2026",
+        slug: "abuja-tech-cup-2026",
+        season: "2026",
+        format: "7-a-side group + knockout",
+        venue: "DevKics Turf Arena, Abuja",
+        startDate: new Date("2026-11-01"),
+        endDate: new Date("2026-11-30"),
+        status: "REGISTRATION_OPEN",
+        summary: "Tournament edition",
+      },
+    });
+  }
+
+  const email = `manager-${suffix}@devkics.test`;
+  const passwordHash = await hashPassword("devkics123");
+
+  const managerUser = await prisma.user.create({
+    data: {
+      email,
+      name: `Manager ${suffix}`,
+      passwordHash,
+      citySlug: "abuja",
+      assignments: {
+        create: {
+          role: Role.MANAGER,
+          cityId: city.id,
+          countryCode: city.countryCode,
+        },
+      },
+    },
+  });
+
+  const org = await prisma.organization.create({
+    data: {
+      cityId: city.id,
+      name: `Org ${suffix}`,
+      slug: `org-${suffix}`,
+      email: `org-${suffix}@devkics.test`,
+      description: "Tech Company",
+      status: "APPROVED",
+      submittedAt: new Date(),
+      reviewedAt: new Date(),
+    },
+  });
+
+  const team = await prisma.team.create({
+    data: {
+      tournamentId: tournament.id,
+      organizationId: org.id,
+      name: `FC ${suffix}`,
+      shortName: suffix.slice(0, 3).toUpperCase(),
+      company: org.name,
+      managerUserId: managerUser.id,
+      status: "APPROVED",
+      submittedAt: new Date(),
+      reviewedAt: new Date(),
+    },
+  });
+
+  await prisma.user.update({
+    where: { id: managerUser.id },
+    data: { teamId: team.id },
+  });
+
+  return { managerUser, email, password: "devkics123", team };
+}
+
+test.describe("Player ↔ Team Membership Frontend Flows", () => {
+  test("Manager invites player -> Player reviews and accepts with waiver -> Manager confirms roster spot", async ({
+    page,
+    browser,
+  }) => {
+    const timestamp = Date.now().toString().slice(-6);
+    const {
+      email: managerEmail,
+      password: managerPassword,
+      team,
+    } = await createManagerWithTeam(timestamp);
+
+    const playerEmail = `player-invited-${timestamp}@devkics.test`;
+
+    // 1. Manager logs in and sends invitation
+    await page.goto("/auth");
+    await page.waitForLoadState("networkidle");
+
+    const signInPanel = page.getByRole("tabpanel", { name: "Sign in" });
+    await signInPanel.getByPlaceholder("you@company.com").fill(managerEmail);
+    await signInPanel.getByPlaceholder("••••••••").fill(managerPassword);
+    await signInPanel.getByRole("button", { name: "Sign in" }).click();
+
+    await page.waitForURL("**/dashboard");
+    await expect(page.getByText(`FC ${timestamp}`)).toBeVisible();
+
+    // Fill invitation form
+    await page.getByPlaceholder("Chidi Nwankwo").fill(`Invited Player ${timestamp}`);
+    await page.getByPlaceholder("chidi@company.com").fill(playerEmail);
+    await page.getByRole("button", { name: "Send team invitation" }).click();
+
+    await expect(page.getByText(`Invitation sent to ${playerEmail}`)).toBeVisible();
+
+    // 2. Player opens fresh incognito context to register
+    const playerContext = await browser.newContext();
+    const playerPage = await playerContext.newPage();
+
+    await playerPage.goto("/auth");
+    await playerPage.waitForLoadState("networkidle");
+
+    await playerPage.getByRole("tab", { name: "Register" }).click();
+    const registerPanel = playerPage.getByRole("tabpanel", { name: "Register" });
+    await registerPanel.getByPlaceholder("Ada Lovelace").fill(`Invited Player ${timestamp}`);
+    await registerPanel.getByPlaceholder("you@company.com").fill(playerEmail);
+    await registerPanel.getByPlaceholder("Choose a password").fill("devkics123");
+    await registerPanel.getByRole("button", { name: "Create account" }).click();
+
+    await playerPage.waitForURL("**/dashboard");
+
+    // Player sees team invitation
+    await expect(playerPage.getByText("Team Invitations")).toBeVisible();
+    await expect(playerPage.getByText(`FC ${timestamp}`)).toBeVisible();
+
+    // Click Review & Accept
+    await playerPage.getByRole("button", { name: "Review & Accept" }).click();
+
+    // Verify dialog opens and accept button requires waiver agreement
+    const acceptDialog = playerPage.getByRole("dialog");
+    await expect(acceptDialog.getByText("Accept Team Invitation")).toBeVisible();
+
+    const submitBtn = acceptDialog.getByRole("button", { name: "Accept & Submit" });
+    await expect(submitBtn).toBeDisabled();
+
+    // Check waiver
+    await acceptDialog.getByRole("checkbox").click();
+    await expect(submitBtn).toBeEnabled();
+
+    await submitBtn.click();
+    await expect(
+      playerPage.getByText(
+        "Invitation accepted! Your spot is now pending team manager confirmation.",
+      ),
+    ).toBeVisible();
+
+    // Player now sees Pending Confirmation
+    await expect(playerPage.getByText("Waiting for manager approval")).toBeVisible();
+
+    // 3. Manager reviews and approves player
+    await page.reload();
+    await page.waitForLoadState("networkidle");
+
+    // Switch to Requests & Invites tab where pending confirmations live
+    await page.getByRole("tab", { name: /Requests & Invites/ }).click();
+    await expect(page.getByText("Pending Confirmation")).toBeVisible();
+    await page.getByRole("button", { name: "Approve" }).click();
+
+    await expect(page.getByText(/approved and added to active squad/i)).toBeVisible();
+
+    // Active roster on Squad tab now includes the player
+    await page.getByRole("tab", { name: /Squad/ }).click();
+    await expect(page.getByText(`Invited Player ${timestamp}`, { exact: true })).toBeVisible();
+
+    // 4. Player refreshes and is now an approved squad member
+    await playerPage.reload();
+    await playerPage.waitForLoadState("networkidle");
+    await expect(playerPage.getByText("Your next match")).toBeVisible();
+
+    // 5. Public team page displays player in squad
+    await playerPage.goto(`/abuja/teams/${team.id}`);
+    await playerPage.waitForLoadState("networkidle");
+    await expect(
+      playerPage.getByText(`Invited Player ${timestamp}`, { exact: true }),
+    ).toBeVisible();
+    await expect(playerPage.getByText("You are on this squad")).toBeVisible();
+
+    await playerContext.close();
+  });
+
+  test("Player requests to join from public team page -> Manager approves join request", async ({
+    page,
+  }) => {
+    const timestamp = (Date.now() + 1000).toString().slice(-6);
+    const { team } = await createManagerWithTeam(timestamp);
+
+    const playerEmail = `applicant-${timestamp}@devkics.test`;
+
+    // 1. Player registers
+    await page.goto("/auth");
+    await page.waitForLoadState("networkidle");
+
+    await page.getByRole("tab", { name: "Register" }).click();
+    const registerPanel = page.getByRole("tabpanel", { name: "Register" });
+    await registerPanel.getByPlaceholder("Ada Lovelace").fill(`Applicant ${timestamp}`);
+    await registerPanel.getByPlaceholder("you@company.com").fill(playerEmail);
+    await registerPanel.getByPlaceholder("Choose a password").fill("devkics123");
+    await registerPanel.getByRole("button", { name: "Create account" }).click();
+
+    await page.waitForURL("**/dashboard");
+
+    // 2. Player navigates to public team page
+    await page.goto(`/abuja/teams/${team.id}`);
+    await page.waitForLoadState("networkidle");
+
+    // Click Request to Join
+    await page.getByRole("button", { name: "Request to Join" }).click();
+
+    const joinDialog = page.getByRole("dialog");
+    await expect(joinDialog.getByText(`Request to Join FC ${timestamp}`)).toBeVisible();
+
+    // Submit button disabled initially (waiver not accepted)
+    const submitRequestBtn = joinDialog.getByRole("button", { name: "Submit Request" });
+    await expect(submitRequestBtn).toBeDisabled();
+
+    // Fill optional number and check waiver
+    await joinDialog.getByPlaceholder("e.g. 10").fill("7");
+    await joinDialog.getByPlaceholder("e.g. Backend Dev").fill("Fullstack Engineer");
+    await joinDialog.getByRole("checkbox").click();
+
+    await expect(submitRequestBtn).toBeEnabled();
+    await submitRequestBtn.click();
+
+    await expect(
+      page.getByText("Join request submitted! The team manager has been notified."),
+    ).toBeVisible();
+    await expect(page.getByText("Join Request Pending")).toBeVisible();
+  });
+});

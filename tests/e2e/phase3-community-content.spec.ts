@@ -63,6 +63,18 @@ async function signIn(
   await page.waitForURL("**/dashboard");
 }
 
+async function signInAdmin(
+  page: import("@playwright/test").Page,
+  input: { email: string; password: string },
+) {
+  await page.goto("/admin/login");
+  await page.waitForLoadState("networkidle");
+  await page.locator("#admin-email").fill(input.email);
+  await page.locator("#admin-password").fill(input.password);
+  await page.getByRole("button", { name: "Sign in to Admin Portal" }).click();
+  await page.waitForURL("**/admin");
+}
+
 async function signOut(page: import("@playwright/test").Page, firstName: string) {
   await page.getByRole("button", { name: firstName }).click();
   await page.getByRole("menuitem", { name: "Sign out" }).click();
@@ -175,7 +187,7 @@ test.describe("Phase 3 community and content", () => {
     await page.getByRole("button", { name: "Request the deck" }).click();
     await expect(page.getByText("Sponsorship enquiry sent")).toBeVisible();
 
-    await signIn(page, { email: adminEmail, password });
+    await signInAdmin(page, { email: adminEmail, password });
 
     await page.getByRole("tab", { name: "Sponsor enquiries" }).click();
     await expect(page.locator("li", { hasText: partnerName })).toBeVisible();
