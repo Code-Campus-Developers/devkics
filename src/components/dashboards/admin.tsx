@@ -1,4 +1,6 @@
 import { Link } from "@tanstack/react-router";
+import { Plus } from "lucide-react";
+import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
 
 import { SectionHeading, StatCard } from "@/components/devkics/brand";
@@ -8,13 +10,72 @@ import { ReportsManager } from "./reports";
 import { SponsorshipManager } from "./sponsorships";
 import { StatusDot } from "@/routes/index";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useDevKics } from "@/lib/devkics/store";
+import type { City } from "@/lib/devkics/types";
 
 export function AdminDashboard() {
-  const { teams, players, applications, fixtures, cities, sponsorshipEnquiries, updateCityStatus } =
-    useDevKics();
+  const {
+    teams,
+    players,
+    applications,
+    fixtures,
+    cities,
+    sponsorshipEnquiries,
+    updateCityStatus,
+    createCity,
+  } = useDevKics();
   const pending = applications.filter((a) => a.status === "pending");
+
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [cityName, setCityName] = useState("");
+  const [cityCountry, setCityCountry] = useState("");
+  const [cityCountryCode, setCityCountryCode] = useState("");
+  const [citySlug, setCitySlug] = useState("");
+  const [cityTagline, setCityTagline] = useState("");
+  const [cityStatus, setCityStatus] = useState<City["status"]>("applications-open");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  async function handleCreateCity(e: FormEvent) {
+    e.preventDefault();
+    if (!cityName.trim() || !cityCountry.trim() || !cityCountryCode.trim()) {
+      toast.error("Please fill in all required fields.");
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const newCity = await createCity({
+        name: cityName.trim(),
+        country: cityCountry.trim(),
+        countryCode: cityCountryCode.trim().toUpperCase(),
+        slug: citySlug.trim() || undefined,
+        tagline: cityTagline.trim() || undefined,
+        status: cityStatus,
+      });
+      toast.success(`City "${newCity.name}" created successfully.`);
+      setIsCreateOpen(false);
+      setCityName("");
+      setCityCountry("");
+      setCityCountryCode("");
+      setCitySlug("");
+      setCityTagline("");
+      setCityStatus("applications-open");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to create city");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
 
   return (
     <div className="space-y-10">
@@ -51,7 +112,18 @@ export function AdminDashboard() {
         </TabsList>
 
         <TabsContent value="cities" className="mt-8 space-y-6">
-          <SectionHeading title="City network" description="Every chapter across the platform." />
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <SectionHeading title="City network" description="Every chapter across the platform." />
+            <Button
+              onClick={() => setIsCreateOpen(true)}
+              className="rounded-full"
+              id="admin-create-city-btn"
+            >
+              <Plus className="mr-1.5 size-4" />
+              Create City
+            </Button>
+          </div>
+
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {cities.map((c) => (
               <div key={c.slug} className="rounded-2xl border border-border bg-card p-5">
@@ -109,6 +181,100 @@ export function AdminDashboard() {
               </div>
             ))}
           </div>
+
+          <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+            <DialogContent className="sm:max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Create New City Chapter</DialogTitle>
+                <DialogDescription>
+                  Add a new city to the DevKics network. Once added, organizers can apply or you can
+                  activate the city portal.
+                </DialogDescription>
+              </DialogHeader>
+              <form onSubmit={handleCreateCity} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="city-name">City Name</Label>
+                  <Input
+                    id="city-name"
+                    required
+                    placeholder="e.g. Kigali"
+                    value={cityName}
+                    onChange={(e) => setCityName(e.target.value)}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="city-country">Country</Label>
+                    <Input
+                      id="city-country"
+                      required
+                      placeholder="e.g. Rwanda"
+                      value={cityCountry}
+                      onChange={(e) => setCityCountry(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="city-country-code">Country Code</Label>
+                    <Input
+                      id="city-country-code"
+                      required
+                      maxLength={3}
+                      placeholder="e.g. RW"
+                      value={cityCountryCode}
+                      onChange={(e) => setCityCountryCode(e.target.value.toUpperCase())}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="city-slug">Custom Slug (Optional)</Label>
+                  <Input
+                    id="city-slug"
+                    placeholder="Leave blank to auto-generate (e.g. kigali)"
+                    value={citySlug}
+                    onChange={(e) =>
+                      setCitySlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="city-tagline">Tagline (Optional)</Label>
+                  <Input
+                    id="city-tagline"
+                    placeholder="e.g. Tech kicks off in the heart of Africa."
+                    value={cityTagline}
+                    onChange={(e) => setCityTagline(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="city-status">Initial Status</Label>
+                  <select
+                    id="city-status"
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    value={cityStatus}
+                    onChange={(e) => setCityStatus(e.target.value as City["status"])}
+                  >
+                    <option value="applications-open">Applications Open</option>
+                    <option value="live">Live</option>
+                    <option value="coming-soon">Coming Soon</option>
+                    <option value="suspended">Suspended</option>
+                  </select>
+                </div>
+                <DialogFooter>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setIsCreateOpen(false)}
+                    disabled={isSubmitting}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={isSubmitting} id="admin-submit-create-city">
+                    {isSubmitting ? "Creating..." : "Create City"}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
         </TabsContent>
 
         <TabsContent value="applications" className="mt-8">

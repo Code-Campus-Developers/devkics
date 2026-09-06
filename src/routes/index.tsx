@@ -6,7 +6,7 @@ import community from "@/assets/community.jpg";
 import { SectionHeading, TeamCrest } from "@/components/devkics/brand";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { cities, tournaments } from "@/lib/devkics/seed";
+import { tournaments } from "@/lib/devkics/seed";
 import { useDevKics } from "@/lib/devkics/store";
 import { computeStandings } from "@/lib/devkics/standings";
 
@@ -26,11 +26,11 @@ export const Route = createFileRoute("/")({
 });
 
 function Home() {
-  const { teams, fixtures, players } = useDevKics();
+  const { teams, fixtures, players, cities, tournaments: liveTournaments } = useDevKics();
   const standings = computeStandings(teams, fixtures).slice(0, 4);
   const next = fixtures.filter((f) => f.status === "scheduled").slice(0, 3);
   const teamById = (id: string) => teams.find((t) => t.id === id);
-  const tournament = tournaments[0]!;
+  const tournament = liveTournaments[0] ?? tournaments[0]!;
 
   return (
     <>

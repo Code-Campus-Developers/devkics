@@ -1,13 +1,11 @@
-import { createFileRoute, Link, Outlet, useRouterState, notFound } from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet, useRouterState } from "@tanstack/react-router";
 
-import { cities } from "@/lib/devkics/seed";
+import { EmptyState } from "@/components/devkics/brand";
+import { Button } from "@/components/ui/button";
+import { useDevKics } from "@/lib/devkics/store";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/$city")({
-  beforeLoad: ({ params }) => {
-    const city = cities.find((c) => c.slug === params.city && c.status === "live");
-    if (!city) throw notFound();
-  },
   component: CityLayout,
 });
 
@@ -27,7 +25,24 @@ const tabs = [
 function CityLayout() {
   const { city } = Route.useParams();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const { cities, bootstrapped } = useDevKics();
   const cityData = cities.find((c) => c.slug === city);
+
+  if (bootstrapped && (!cityData || cityData.status !== "live")) {
+    return (
+      <div className="mx-auto max-w-4xl px-5 py-20">
+        <EmptyState
+          title="City Portal Not Active"
+          description={`The city "${city}" is not currently running an active tournament season.`}
+          action={
+            <Button asChild variant="outline" className="rounded-full">
+              <Link to="/cities">Browse All Cities</Link>
+            </Button>
+          }
+        />
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -40,7 +55,9 @@ function CityLayout() {
             <h1 className="mt-2 font-display text-4xl font-bold capitalize text-pitch-foreground sm:text-5xl">
               {cityData?.name ?? city}
             </h1>
-            <p className="mt-2 text-pitch-foreground/70">{cityData?.country} · Season 1 · 2026</p>
+            <p className="mt-2 text-pitch-foreground/70">
+              {cityData?.country ?? "Global"} · Season 1 · 2026
+            </p>
           </div>
         </div>
         <div className="border-t border-pitch-foreground/10">

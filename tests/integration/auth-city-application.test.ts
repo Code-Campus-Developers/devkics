@@ -327,4 +327,132 @@ describe("Phase 1 API integration", () => {
 
     expect(status).toBe(429);
   });
+
+  it("enforces admin RBAC and duplicate slug prevention on POST /api/cities", async () => {
+    // 1. Unauthenticated -> 401
+    const unauthReq = new Request("http://localhost:8080/api/cities", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Kigali",
+        country: "Rwanda",
+        countryCode: "RW",
+      }),
+    });
+    const unauthRes = await handleApiRequest(unauthReq);
+    expect(unauthRes?.status).toBe(401);
+
+    // 2. Manager user (non-admin) -> 403
+    const manager = await prisma.user.create({
+      data: {
+        name: "Regular Manager",
+        email: "mgr-city@devkics.com",
+        passwordHash: await hashPassword("devkics123"),
+      },
+    });
+    await prisma.roleAssignment.create({
+      data: {
+        userId: manager.id,
+        role: "MANAGER",
+      },
+    });
+    const mgrLoginReq = new Request("http://localhost:8080/api/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "mgr-city@devkics.com", password: "devkics123" }),
+    });
+    const mgrLoginRes = await handleApiRequest(mgrLoginReq);
+    const mgrCookies = collectSetCookies(mgrLoginRes as Response);
+
+    const mgrCreateReq = new Request("http://localhost:8080/api/cities", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        cookie: toCookieHeader(mgrCookies),
+      },
+      body: JSON.stringify({
+        name: "Kigali",
+        country: "Rwanda",
+        countryCode: "RW",
+      }),
+    });
+    const mgrCreateRes = await handleApiRequest(mgrCreateReq);
+    expect(mgrCreateRes?.status).toBe(403);
+
+    // 3. Admin user -> 201 Created
+    const admin = await prisma.user.create({
+      data: {
+        name: "Admin City Maker",
+        email: "cityadmin@devkics.com",
+        passwordHash: await hashPassword("devkics123"),
+      },
+    });
+    await prisma.roleAssignment.create({
+      data: {
+        userId: admin.id,
+        role: "ADMIN",
+      },
+    });
+    const adminLoginReq = new Request("http://localhost:8080/api/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "cityadmin@devkics.com", password: "devkics123" }),
+    });
+    const adminLoginRes = await handleApiRequest(adminLoginReq);
+    const adminCookies = collectSetCookies(adminLoginRes as Response);
+
+    const adminCreateReq = new Request("http://localhost:8080/api/cities", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        cookie: toCookieHeader(adminCookies),
+      },
+      body: JSON.stringify({
+        name: "Kigali",
+        country: "Rwanda",
+        countryCode: "RW",
+        slug: "kigali",
+        tagline: "Tech in Rwanda",
+        status: "applications-open",
+      }),
+    });
+    const adminCreateRes = await handleApiRequest(adminCreateReq);
+    expect(adminCreateRes?.status).toBe(201);
+    const createData = (await adminCreateRes?.json()) as {
+      ok: boolean;
+      city: { slug: string; name: string; status: string };
+    };
+    expect(createData.ok).toBe(true);
+    expect(createData.city.slug).toBe("kigali");
+    expect(createData.city.status).toBe("applications-open");
+
+    // 4. Duplicate slug -> 409
+    const dupCreateReq = new Request("http://localhost:8080/api/cities", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        cookie: toCookieHeader(adminCookies),
+      },
+      body: JSON.stringify({
+        name: "Kigali Two",
+        country: "Rwanda",
+        countryCode: "RW",
+        slug: "kigali",
+      }),
+    });
+    const dupCreateRes = await handleApiRequest(dupCreateReq);
+    expect(dupCreateRes?.status).toBe(409);
+
+    // 5. Verify database record and audit log
+    const createdCity = await prisma.city.findUnique({ where: { slug: "kigali" } });
+    expect(createdCity).toBeTruthy();
+    expect(createdCity?.name).toBe("Kigali");
+    if (!createdCity) throw new Error("Expected createdCity to be defined");
+
+    const audit = await prisma.auditLog.findFirst({
+      where: { action: "city.created", resourceId: createdCity.id },
+    });
+    expect(audit).toBeTruthy();
+    expect(audit?.actorId).toBe(admin.id);
+  });
 });

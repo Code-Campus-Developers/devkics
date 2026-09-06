@@ -6,7 +6,7 @@ import { EmptyState, PageHeader } from "@/components/devkics/brand";
 import { StatusDot } from "@/routes/index";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { cities } from "@/lib/devkics/seed";
+import { useDevKics } from "@/lib/devkics/store";
 import { canonicalLink, seoMeta } from "@/lib/seo";
 
 export const Route = createFileRoute("/cities")({
@@ -23,6 +23,7 @@ export const Route = createFileRoute("/cities")({
 });
 
 function CitiesPage() {
+  const { cities } = useDevKics();
   const [query, setQuery] = useState("");
   const filtered = cities.filter((c) =>
     `${c.name} ${c.country}`.toLowerCase().includes(query.toLowerCase()),

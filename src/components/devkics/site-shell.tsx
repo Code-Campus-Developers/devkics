@@ -202,6 +202,20 @@ export function SiteHeader() {
 }
 
 export function SiteFooter() {
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const { cities, currentUser } = useDevKics();
+  const cityMatch = pathname.match(/^\/([a-z0-9-]+)(?:\/|$)/);
+  const matchedSlug = cityMatch ? cityMatch[1] : null;
+  const currentCity =
+    cities.find((c) => c.slug === matchedSlug && c.status === "live") ??
+    (currentUser?.citySlug
+      ? cities.find((c) => c.slug === currentUser.citySlug && c.status === "live")
+      : null) ??
+    cities.find((c) => c.slug === "abuja") ??
+    cities[0];
+  const citySlug = currentCity?.slug ?? "abuja";
+  const cityName = currentCity?.name ?? "Abuja";
+
   return (
     <footer className="surface-pitch mt-24">
       <div className="mx-auto grid max-w-6xl gap-10 px-5 py-14 sm:grid-cols-2 lg:grid-cols-4">
@@ -216,9 +230,9 @@ export function SiteFooter() {
           title="Compete"
           links={[
             { label: "Find a city", to: "/cities" },
-            { label: "Abuja portal", to: "/abuja" },
-            { label: "Fixtures", to: "/abuja/fixtures" },
-            { label: "Standings", to: "/abuja/standings" },
+            { label: `${cityName} portal`, to: `/${citySlug}` },
+            { label: "Fixtures", to: `/${citySlug}/fixtures` },
+            { label: "Standings", to: `/${citySlug}/standings` },
           ]}
         />
         <FooterCol
@@ -226,7 +240,7 @@ export function SiteFooter() {
           links={[
             { label: "Volunteer", to: "/volunteer" },
             { label: "Become an organizer", to: "/organize" },
-            { label: "Sponsors", to: "/abuja/sponsors" },
+            { label: "Sponsors", to: `/${citySlug}/sponsors` },
             { label: "Sign in", to: "/auth" },
           ]}
         />

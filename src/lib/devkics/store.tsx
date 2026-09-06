@@ -193,6 +193,15 @@ interface StoreValue {
   deleteGalleryMedia: (galleryId: string, mediaId: string) => Promise<void>;
   markNotificationRead: (id: string) => Promise<void>;
   markAllNotificationsRead: () => Promise<void>;
+  createCity: (input: {
+    name: string;
+    slug?: string | undefined;
+    country: string;
+    countryCode: string;
+    tagline?: string | undefined;
+    accentImage?: string | undefined;
+    status?: City["status"] | undefined;
+  }) => Promise<City>;
   updateCityStatus: (slug: string, status: City["status"]) => Promise<void>;
   resetDemo: () => Promise<void>;
 }
@@ -1014,6 +1023,18 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
     await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notifications });
   }, [queryClient]);
 
+  const createCity = useCallback<StoreValue["createCity"]>(
+    async (input) => {
+      const payload = await api<{ ok: boolean; city: City }>("/api/cities", {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.cities });
+      return payload.city;
+    },
+    [queryClient],
+  );
+
   const updateCityStatus = useCallback<StoreValue["updateCityStatus"]>(
     async (slug, status) => {
       await api<{ city: City }>(`/api/cities/${encodeURIComponent(slug)}`, {
@@ -1037,9 +1058,7 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
     teams,
     players,
     fixtures,
-    applications: (applicationsQuery.data ?? []).concat(
-      seed.applications.filter((app) => app.kind !== "city-organizer"),
-    ),
+    applications: applicationsQuery.data ?? [],
     organizations: organizationsQuery.data ?? [],
     tournaments: tournamentsQuery.isError ? seed.tournaments : (tournamentsQuery.data ?? []),
     standings: standingsQuery.data ?? [],
@@ -1085,6 +1104,7 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
     deleteGalleryMedia,
     markNotificationRead,
     markAllNotificationsRead,
+    createCity,
     updateCityStatus,
     resetDemo,
   };

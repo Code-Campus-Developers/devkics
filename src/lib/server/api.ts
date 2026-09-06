@@ -382,6 +382,22 @@ const cityStatusSchema = z.object({
   status: z.enum(["live", "applications-open", "coming-soon", "suspended", "archived"]),
 });
 
+const createCitySchema = z.object({
+  name: z.string().trim().min(2).max(80),
+  slug: z
+    .string()
+    .trim()
+    .min(2)
+    .max(80)
+    .regex(/^[a-z0-9-]+$/)
+    .optional(),
+  country: z.string().trim().min(2).max(80),
+  countryCode: z.string().trim().min(2).max(3).toUpperCase(),
+  tagline: z.string().trim().max(160).optional(),
+  accentImage: z.string().trim().max(80).optional(),
+  status: z.enum(["live", "applications-open", "coming-soon", "suspended", "archived"]).optional(),
+});
+
 const organizerApplicationSchema = z.object({
   kind: z.literal("city-organizer"),
   name: z.string().min(2),
@@ -1326,6 +1342,72 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
     const headers = new Headers(authHeaders);
     headers.set("cache-control", "public, max-age=60, stale-while-revalidate=120");
     return jsonResponse(200, { ok: true, cities: cities.map(mapCityPayload) }, headers);
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/cities") {
+    if (!auth.user) {
+      return jsonResponse(401, { ok: false, error: "Unauthorized" }, authHeaders);
+    }
+
+    if (!isAdmin(auth.user, auth.assignments)) {
+      return jsonResponse(403, { ok: false, error: "Forbidden" }, authHeaders);
+    }
+
+    const body = await parseJsonBody(request);
+    const parsed = createCitySchema.safeParse(body);
+    if (!parsed.success) {
+      return jsonResponse(
+        400,
+        { ok: false, error: "Invalid payload", issues: parsed.error.issues },
+        authHeaders,
+      );
+    }
+
+    const rawSlug =
+      parsed.data.slug?.trim() ||
+      parsed.data.name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "");
+    const slug = rawSlug || "city";
+
+    const existing = await prisma.city.findUnique({ where: { slug } });
+    if (existing) {
+      return jsonResponse(
+        409,
+        { ok: false, error: "A city with this slug already exists" },
+        authHeaders,
+      );
+    }
+
+    const city = await prisma.city.create({
+      data: {
+        name: parsed.data.name.trim(),
+        slug,
+        country: parsed.data.country.trim(),
+        countryCode: parsed.data.countryCode.trim().toUpperCase(),
+        tagline: parsed.data.tagline?.trim() || `${parsed.data.name.trim()} chapter`,
+        accentImage: parsed.data.accentImage?.trim() || slug,
+        status: toCityStatus(parsed.data.status ?? "applications-open"),
+      },
+    });
+
+    await writeAuditLog(prisma, {
+      actorId: auth.user.id,
+      action: "city.created",
+      resourceType: "city",
+      resourceId: city.id,
+      cityId: city.id,
+      newValue: {
+        slug: city.slug,
+        name: city.name,
+        country: city.country,
+        countryCode: city.countryCode,
+        status: city.status,
+      },
+    });
+
+    return jsonResponse(201, { ok: true, city: mapCityPayload(city) }, authHeaders);
   }
 
   if (request.method === "PATCH" && url.pathname.startsWith("/api/cities/")) {
