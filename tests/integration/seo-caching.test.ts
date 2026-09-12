@@ -98,4 +98,22 @@ describe("SEO & Caching Integration Tests", () => {
       "no-store, no-cache, must-revalidate, private",
     );
   });
+
+  it("serves /api/health with database connectivity status", async () => {
+    const healthResponse = await executeRequest("http://localhost:3000/api/health", {
+      method: "GET",
+    });
+    expect(healthResponse.status).toBe(200);
+    expect(healthResponse.headers.get("content-type")).toContain("application/json");
+    const json = (await healthResponse.json()) as {
+      ok: boolean;
+      status: string;
+      database: string;
+      timestamp: string;
+    };
+    expect(json.ok).toBe(true);
+    expect(json.status).toBe("healthy");
+    expect(json.database).toBe("connected");
+    expect(json.timestamp).toBeDefined();
+  });
 });

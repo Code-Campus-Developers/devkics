@@ -21,6 +21,7 @@
     "prisma:migrate": "prisma migrate dev --name phase1_foundation",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:seed": "prisma db seed",
+    "prisma:seed:prod": "node prisma/prod-seed.mjs",
     "docker:up": "docker compose up -d --build",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f app postgres",

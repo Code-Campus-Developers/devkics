@@ -13,6 +13,11 @@ import {
 import { PrismaPg } from "@prisma/adapter-pg";
 import bcrypt from "bcryptjs";
 
+if (process.env.NODE_ENV === "production") {
+  console.error("CRITICAL: prisma/seed.mjs cannot be run in production.");
+  process.exit(1);
+}
+
 const connectionString = process.env.DATABASE_URL;
 
 if (!connectionString) {

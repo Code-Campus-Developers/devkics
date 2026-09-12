@@ -21,6 +21,8 @@ CMD ["bun", "run", "dev", "--", "--host", "0.0.0.0", "--port", "8080"]
 FROM base AS runtime
 ENV NODE_ENV=production
 COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/prisma ./prisma
+COPY --from=deps /app/prisma.config.ts ./prisma.config.ts
 COPY --from=build /app/.output ./.output
 COPY --from=build /app/public ./public
 COPY --from=build /app/package.json ./package.json

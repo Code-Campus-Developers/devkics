@@ -1079,6 +1079,26 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
     return null;
   };
 
+  if (request.method === "GET" && url.pathname === "/api/health") {
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      return jsonResponse(200, {
+        ok: true,
+        status: "healthy",
+        database: "connected",
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      return jsonResponse(503, {
+        ok: false,
+        status: "unhealthy",
+        database: "disconnected",
+        error: error instanceof Error ? error.message : "Database connection failed",
+        timestamp: new Date().toISOString(),
+      });
+    }
+  }
+
   // auth
   if (request.method === "POST" && url.pathname === "/api/auth/register") {
     const guard = applyEndpointRateLimit("auth:register", AUTH_RATE_LIMIT);
