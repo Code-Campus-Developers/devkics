@@ -77,7 +77,9 @@ function TeamDetail() {
   }
 
   const squad = players.filter((p) => p.teamId === team.id && p.status === "approved");
-  const row = computeStandings(teams, fixtures).find((s) => s.teamId === team.id);
+  const standings = computeStandings(teams, fixtures);
+  const rank = standings.findIndex((s) => s.teamId === team.id) + 1;
+  const row = standings.find((s) => s.teamId === team.id);
   const teamFixtures = fixtures.filter((f) => f.homeTeamId === team.id || f.awayTeamId === team.id);
 
   const isRosterLocked = team.status === "locked" || Boolean(team.squadLockedAt);
@@ -104,6 +106,10 @@ function TeamDetail() {
         (p) => p.userId === currentUser.id && p.teamId !== team.id && p.status === "approved",
       )
     : false;
+
+  const isTeamManager = currentUser?.id === team.managerUserId;
+  const isLeagueOfficial = currentUser?.role === "admin" || currentUser?.role === "organizer";
+  const canViewSquadDetails = isApprovedOnThisTeam || isTeamManager || isLeagueOfficial;
 
   const handleJoinSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -134,7 +140,8 @@ function TeamDetail() {
       setJoinRole("");
       setJoinWaiver(false);
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Failed to submit join request");
+      const message = err instanceof Error ? err.message : "Failed to submit request";
+      toast.error(message);
     } finally {
       setIsSubmitting(false);
     }
@@ -143,18 +150,15 @@ function TeamDetail() {
   const renderJoinAction = () => {
     if (isApprovedOnThisTeam) {
       return (
-        <Badge variant="secondary" className="rounded-full px-3 py-1 text-xs">
-          <CheckCircle2 className="mr-1 size-3 text-primary" /> You are on this squad
+        <Badge className="rounded-full bg-emerald-500/15 px-3 py-1 text-xs text-emerald-500">
+          <CheckCircle2 className="mr-1 size-3" /> You are on this squad
         </Badge>
       );
     }
 
     if (isPendingOnThisTeam) {
       return (
-        <Badge
-          variant="outline"
-          className="rounded-full px-3 py-1 text-xs border-amber-500/40 text-amber-600 bg-amber-500/10"
-        >
+        <Badge variant="outline" className="rounded-full px-3 py-1 text-xs text-amber-500">
           Join Request Pending
         </Badge>
       );
@@ -162,9 +166,9 @@ function TeamDetail() {
 
     if (isInvitedOnThisTeam) {
       return (
-        <Button asChild size="sm" className="rounded-full">
-          <Link to="/dashboard">Review Invitation</Link>
-        </Button>
+        <Badge variant="outline" className="rounded-full px-3 py-1 text-xs text-sky-400">
+          Invitation Received — Check Dashboard
+        </Badge>
       );
     }
 
@@ -233,6 +237,16 @@ function TeamDetail() {
         <div className="flex items-center gap-3">
           {renderJoinAction()}
           <div className="flex gap-1.5">
+            {team.status && (
+              <Badge variant="outline" className="rounded-full capitalize">
+                {team.status}
+              </Badge>
+            )}
+            {row && rank > 0 && (
+              <Badge variant="secondary" className="rounded-full">
+                #{rank} in table
+              </Badge>
+            )}
             {(row?.form ?? []).map((r, i) => (
               <FormPill key={i} result={r} />
             ))}
@@ -240,12 +254,15 @@ function TeamDetail() {
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
         {[
-          ["Played", row?.played ?? 0],
-          ["Won", row?.won ?? 0],
-          ["Goals for", row?.goalsFor ?? 0],
+          ["Founded", team.founded],
+          ["Company", team.company],
           ["Points", row?.points ?? 0],
+          [
+            "Goal diff",
+            (row?.goalDifference ?? 0) > 0 ? `+${row?.goalDifference}` : (row?.goalDifference ?? 0),
+          ],
         ].map(([k, v]) => (
           <div key={k as string} className="rounded-2xl border border-border bg-card p-5">
             <p className="text-xs uppercase tracking-wider text-muted-foreground">{k}</p>
@@ -257,57 +274,83 @@ function TeamDetail() {
       <section>
         <div className="flex items-center justify-between pb-2">
           <h2 className="text-2xl font-bold">Squad</h2>
-          <span className="text-xs text-muted-foreground">{squad.length} confirmed players</span>
+          {canViewSquadDetails && (
+            <span className="text-xs text-muted-foreground">{squad.length} confirmed players</span>
+          )}
         </div>
-        <div className="mt-4 overflow-x-auto rounded-3xl border border-border bg-card">
-          <table className="w-full min-w-[560px] text-sm" aria-label="Team squad roster">
-            <caption className="sr-only">Team Squad Roster</caption>
-            <thead>
-              <tr className="border-b border-border text-xs uppercase tracking-wider text-muted-foreground">
-                <th scope="col" className="px-4 py-3 text-left font-semibold">
-                  <span className="sr-only">Kit Number</span>#
-                </th>
-                <th scope="col" className="px-4 py-3 text-left font-semibold">
-                  Player
-                </th>
-                <th scope="col" className="px-4 py-3 text-left font-semibold">
-                  Position
-                </th>
-                <th scope="col" className="px-4 py-3 text-left font-semibold">
-                  Day job
-                </th>
-                <th scope="col" className="px-3 py-3 text-center font-semibold">
-                  <abbr title="Goals">G</abbr>
-                </th>
-                <th scope="col" className="px-3 py-3 text-center font-semibold">
-                  <abbr title="Assists">A</abbr>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {squad.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground text-sm">
-                    No players have been officially confirmed to the active roster yet.
-                  </td>
+        {canViewSquadDetails ? (
+          <div className="mt-4 overflow-x-auto rounded-3xl border border-border bg-card">
+            <table className="w-full min-w-[560px] text-sm" aria-label="Team squad roster">
+              <caption className="sr-only">Team Squad Roster</caption>
+              <thead>
+                <tr className="border-b border-border text-xs uppercase tracking-wider text-muted-foreground">
+                  <th scope="col" className="px-4 py-3 text-left font-semibold">
+                    <span className="sr-only">Kit Number</span>#
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-left font-semibold">
+                    Player
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-left font-semibold">
+                    Position
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-left font-semibold">
+                    Day job
+                  </th>
+                  <th scope="col" className="px-3 py-3 text-center font-semibold">
+                    <abbr title="Goals">G</abbr>
+                  </th>
+                  <th scope="col" className="px-3 py-3 text-center font-semibold">
+                    <abbr title="Assists">A</abbr>
+                  </th>
                 </tr>
-              ) : (
-                squad.map((p) => (
-                  <tr key={p.id} className="border-b border-border/60 last:border-0">
-                    <td className="px-4 py-3 font-display font-bold text-muted-foreground">
-                      {p.number}
+              </thead>
+              <tbody>
+                {squad.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground text-sm">
+                      No players have been officially confirmed to the active roster yet.
                     </td>
-                    <td className="px-4 py-3 font-medium">{p.name}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{p.position}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{p.role}</td>
-                    <td className="px-3 py-3 text-center tabular-nums">{p.goals}</td>
-                    <td className="px-3 py-3 text-center tabular-nums">{p.assists}</td>
                   </tr>
-                ))
+                ) : (
+                  squad.map((p) => (
+                    <tr key={p.id} className="border-b border-border/60 last:border-0">
+                      <td className="px-4 py-3 font-display font-bold text-muted-foreground">
+                        {p.number}
+                      </td>
+                      <td className="px-4 py-3 font-medium">{p.name}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{p.position}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{p.role}</td>
+                      <td className="px-3 py-3 text-center tabular-nums">{p.goals}</td>
+                      <td className="px-3 py-3 text-center tabular-nums">{p.assists}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="mt-4 rounded-3xl border border-border bg-card p-6 sm:p-8">
+            <div className="flex flex-col items-center text-center">
+              <div className="flex size-12 items-center justify-center rounded-2xl border border-border bg-muted/60 text-muted-foreground">
+                <Lock className="size-5" />
+              </div>
+              <h3 className="mt-4 font-display text-lg font-bold">Squad Roster Protected</h3>
+              <p className="mt-1.5 max-w-md text-sm text-muted-foreground">
+                Individual player identities and squad details are restricted to confirmed squad
+                members, team managers, and league officials.
+              </p>
+              {!currentUser && (
+                <div className="mt-5">
+                  <Button asChild size="sm" className="rounded-full">
+                    <Link to="/auth" search={{ redirect: `/${city}/teams/${teamId}` }}>
+                      Sign In to View Squad
+                    </Link>
+                  </Button>
+                </div>
               )}
-            </tbody>
-          </table>
-        </div>
+            </div>
+          </div>
+        )}
       </section>
 
       <section>

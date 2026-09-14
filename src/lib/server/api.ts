@@ -13,6 +13,7 @@ import {
   TeamStatus,
   TournamentStatus,
   VolunteerApplicationStatus,
+  type Prisma,
   type RoleAssignment,
   type User,
 } from "@prisma/client";
@@ -288,14 +289,14 @@ function mapPlayerPayload(
     reviewNotes: string | null;
     submittedAt: Date;
   },
-  options: { includeReviewNotes?: boolean } = {},
+  options: { includeReviewNotes?: boolean; includeEmail?: boolean } = {},
 ) {
   return {
     id: player.id,
     teamId: player.teamId,
     userId: player.userId,
     fullName: player.fullName,
-    email: player.email,
+    email: options.includeEmail === false ? null : (player.email ?? null),
     position: player.position,
     number: player.number,
     role: player.role,
@@ -2343,10 +2344,84 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
     const page = Number(url.searchParams.get("page") ?? "1");
     const pageSize = Math.min(Number(url.searchParams.get("pageSize") ?? "30"), 300);
 
-    const where = {
-      ...(teamId ? { teamId } : {}),
-      ...(tournamentId ? { team: { tournamentId } } : {}),
-    };
+    const isGlobalAdmin = isAdmin(auth.user, auth.assignments);
+    const isCityOrganizer = hasScopedRole(auth.assignments, Role.ORGANIZER);
+    const isPrivileged = isGlobalAdmin || isCityOrganizer;
+
+    let where: Prisma.PlayerWhereInput;
+    let managedTeamIds: string[] = [];
+
+    if (isPrivileged) {
+      where = {
+        ...(teamId ? { teamId } : {}),
+        ...(tournamentId ? { team: { tournamentId } } : {}),
+      };
+    } else {
+      // Find teams managed by this user
+      const managedTeams = await prisma.team.findMany({
+        where: { managerUserId: auth.user.id },
+        select: { id: true },
+      });
+      managedTeamIds = managedTeams.map((t) => t.id);
+
+      // Find user's own player records (by userId or user email)
+      const userPlayerRecords = await prisma.player.findMany({
+        where: {
+          OR: [{ userId: auth.user.id }, { email: auth.user.email.toLowerCase().trim() }],
+        },
+        select: { id: true, teamId: true, status: true },
+      });
+
+      const approvedTeamIds = userPlayerRecords
+        .filter((p) => p.status === PlayerStatus.APPROVED)
+        .map((p) => p.teamId);
+      const ownPlayerIds = userPlayerRecords.map((p) => p.id);
+
+      const visibilityConditions: Prisma.PlayerWhereInput[] = [];
+
+      // 1. Managers can see all players on their managed team(s)
+      if (managedTeamIds.length > 0) {
+        visibilityConditions.push({ teamId: { in: managedTeamIds } });
+      }
+
+      // 2. Players can always see themselves (including pending/invited)
+      if (ownPlayerIds.length > 0) {
+        visibilityConditions.push({ id: { in: ownPlayerIds } });
+        visibilityConditions.push({ userId: auth.user.id });
+        visibilityConditions.push({ email: auth.user.email.toLowerCase().trim() });
+      }
+
+      // 3. Players can see approved teammates on teams where their own status is APPROVED
+      if (approvedTeamIds.length > 0) {
+        visibilityConditions.push({
+          teamId: { in: approvedTeamIds },
+          status: PlayerStatus.APPROVED,
+        });
+      }
+
+      // If user has no managed teams and no player records, return empty set
+      if (visibilityConditions.length === 0) {
+        return jsonResponse(
+          200,
+          {
+            ok: true,
+            players: [],
+            page,
+            pageSize,
+            total: 0,
+          },
+          authHeaders,
+        );
+      }
+
+      where = {
+        AND: [
+          { OR: visibilityConditions },
+          ...(teamId ? [{ teamId }] : []),
+          ...(tournamentId ? [{ team: { tournamentId } }] : []),
+        ],
+      };
+    }
 
     const [players, total] = await Promise.all([
       prisma.player.findMany({
@@ -2371,18 +2446,24 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       prisma.player.count({ where }),
     ]);
 
-    const canViewAllPlayerReviewNotes =
-      isAdmin(auth.user, auth.assignments) || hasScopedRole(auth.assignments, Role.ORGANIZER);
+    const canViewAllPlayerReviewNotes = isPrivileged;
 
     return jsonResponse(
       200,
       {
         ok: true,
-        players: players.map((player) =>
-          mapPlayerPayload(player, {
-            includeReviewNotes: canViewAllPlayerReviewNotes || player.userId === auth.user.id,
-          }),
-        ),
+        players: players.map((player) => {
+          const isSelf =
+            player.userId === auth.user!.id ||
+            Boolean(player.email && player.email.toLowerCase() === auth.user!.email.toLowerCase());
+          const isOwnTeamManager = managedTeamIds.includes(player.teamId);
+          const canViewSensitive = isPrivileged || isSelf || isOwnTeamManager;
+
+          return mapPlayerPayload(player, {
+            includeReviewNotes: canViewAllPlayerReviewNotes || isSelf,
+            includeEmail: canViewSensitive,
+          });
+        }),
         page,
         pageSize,
         total,

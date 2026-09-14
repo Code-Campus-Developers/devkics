@@ -25,7 +25,7 @@ const tabs = [
 function CityLayout() {
   const { city } = Route.useParams();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const { cities, bootstrapped } = useDevKics();
+  const { cities, bootstrapped, currentUser } = useDevKics();
   const cityData = cities.find((c) => c.slug === city);
 
   if (bootstrapped && (!cityData || cityData.status !== "live")) {
@@ -43,6 +43,8 @@ function CityLayout() {
       </div>
     );
   }
+
+  const visibleTabs = tabs.filter((tab) => tab.to !== "/$city/players" || Boolean(currentUser));
 
   return (
     <div>
@@ -63,7 +65,7 @@ function CityLayout() {
         <div className="border-t border-pitch-foreground/10">
           <div className="mx-auto max-w-6xl overflow-x-auto px-5">
             <nav className="flex gap-1 py-2" aria-label="City section navigation">
-              {tabs.map((tab) => {
+              {visibleTabs.map((tab) => {
                 const href = tab.to.replace("$city", city);
                 const active = tab.exact ? pathname === href : pathname.startsWith(href);
                 return (

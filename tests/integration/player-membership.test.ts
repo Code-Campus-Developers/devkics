@@ -1073,4 +1073,260 @@ describe("Player ↔ Team Membership Lifecycle", () => {
       "already have an active or pending squad in this tournament",
     );
   });
+
+  it("GET /api/players: rejects unauthenticated requests with 401", async () => {
+    const res = await handleApiRequest(
+      new Request("http://localhost:8080/api/players", {
+        method: "GET",
+      }),
+    );
+    expect(res?.status).toBe(401);
+  });
+
+  it("GET /api/players: unassigned authenticated user receives empty player list", async () => {
+    const { otherCookies, tournament } = await createTestFixtures();
+    const res = await handleApiRequest(
+      new Request(`http://localhost:8080/api/players?tournamentId=${tournament.id}`, {
+        method: "GET",
+        headers: { cookie: toCookieHeader(otherCookies) },
+      }),
+    );
+    expect(res?.status).toBe(200);
+    const payload = (await res?.json()) as { ok: boolean; players: unknown[]; total: number };
+    expect(payload.ok).toBe(true);
+    expect(payload.players).toEqual([]);
+    expect(payload.total).toBe(0);
+  });
+
+  it("GET /api/players: manager can only see their own team players and can view emails", async () => {
+    const { team, managerCookies, tournament, org, stamp } = await createTestFixtures();
+
+    // Create a player on manager's team
+    const team1Player = await prisma.player.create({
+      data: {
+        teamId: team.id,
+        fullName: "Squad Member 1",
+        email: `squad1-${stamp}@devkics.test`,
+        position: "DEF",
+        status: PlayerStatus.APPROVED,
+        waiverAcceptedAt: new Date(),
+      },
+    });
+
+    // Create a rival team in the same tournament
+    const rivalTeam = await prisma.team.create({
+      data: {
+        tournamentId: tournament.id,
+        organizationId: org.id,
+        name: `Rival FC ${stamp}`,
+        shortName: `RFC${String(stamp).slice(-1)}`,
+        company: "Rival Corp",
+        status: TeamStatus.APPROVED,
+      },
+    });
+
+    // Create a player on rival team
+    await prisma.player.create({
+      data: {
+        teamId: rivalTeam.id,
+        fullName: "Rival Player 1",
+        email: `rival-${stamp}@devkics.test`,
+        position: "FWD",
+        status: PlayerStatus.APPROVED,
+        waiverAcceptedAt: new Date(),
+      },
+    });
+
+    // Manager queries the tournament
+    const tournamentQueryRes = await handleApiRequest(
+      new Request(`http://localhost:8080/api/players?tournamentId=${tournament.id}`, {
+        method: "GET",
+        headers: { cookie: toCookieHeader(managerCookies) },
+      }),
+    );
+    expect(tournamentQueryRes?.status).toBe(200);
+    const tournamentPayload = (await tournamentQueryRes?.json()) as {
+      ok: boolean;
+      players: { id: string; teamId: string; email: string | null }[];
+    };
+    expect(tournamentPayload.players.length).toBe(1);
+    const p0 = tournamentPayload.players[0]!;
+    expect(p0.id).toBe(team1Player.id);
+    expect(p0.email).toBe(`squad1-${stamp}@devkics.test`); // Manager sees own player email
+
+    // Manager queries rival team directly -> returns empty list
+    const rivalQueryRes = await handleApiRequest(
+      new Request(`http://localhost:8080/api/players?teamId=${rivalTeam.id}`, {
+        method: "GET",
+        headers: { cookie: toCookieHeader(managerCookies) },
+      }),
+    );
+    expect(rivalQueryRes?.status).toBe(200);
+    const rivalPayload = (await rivalQueryRes?.json()) as {
+      ok: boolean;
+      players: unknown[];
+      total: number;
+    };
+    expect(rivalPayload.players).toEqual([]);
+    expect(rivalPayload.total).toBe(0);
+  });
+
+  it("GET /api/players: player can only see self and approved teammates; teammate emails are masked", async () => {
+    const { team, tournament, org, stamp, city } = await createTestFixtures();
+
+    // User A (approved on Team 1)
+    const playerAUser = await prisma.user.create({
+      data: {
+        name: "Player A",
+        email: `player-a-${stamp}@devkics.test`,
+        passwordHash: await hashPassword("password-123"),
+        citySlug: city.slug,
+      },
+    });
+    const playerAAssignment = await prisma.roleAssignment.create({
+      data: { userId: playerAUser.id, role: Role.PLAYER, cityId: city.id, countryCode: "NG" },
+    });
+    const playerASession = await issueSession(playerAUser, [playerAAssignment]);
+    const playerACookies = [playerASession.accessCookie, playerASession.refreshCookie];
+
+    const playerARecord = await prisma.player.create({
+      data: {
+        teamId: team.id,
+        userId: playerAUser.id,
+        fullName: playerAUser.name,
+        email: playerAUser.email,
+        position: "MID",
+        status: PlayerStatus.APPROVED,
+        waiverAcceptedAt: new Date(),
+      },
+    });
+
+    // Teammate B (approved on Team 1)
+    const teammateB = await prisma.player.create({
+      data: {
+        teamId: team.id,
+        fullName: "Teammate B",
+        email: `teammate-b-${stamp}@devkics.test`,
+        position: "DEF",
+        status: PlayerStatus.APPROVED,
+        waiverAcceptedAt: new Date(),
+      },
+    });
+
+    // Rival Team & Rival Player
+    const rivalTeam = await prisma.team.create({
+      data: {
+        tournamentId: tournament.id,
+        organizationId: org.id,
+        name: `Rival FC ${stamp}`,
+        shortName: `RFC${String(stamp).slice(-1)}`,
+        company: "Rival Corp",
+        status: TeamStatus.APPROVED,
+      },
+    });
+    await prisma.player.create({
+      data: {
+        teamId: rivalTeam.id,
+        fullName: "Rival Player",
+        email: `rival-${stamp}@devkics.test`,
+        position: "FWD",
+        status: PlayerStatus.APPROVED,
+        waiverAcceptedAt: new Date(),
+      },
+    });
+
+    // Player A queries tournament players
+    const res = await handleApiRequest(
+      new Request(`http://localhost:8080/api/players?tournamentId=${tournament.id}`, {
+        method: "GET",
+        headers: { cookie: toCookieHeader(playerACookies) },
+      }),
+    );
+    expect(res?.status).toBe(200);
+    const payload = (await res?.json()) as {
+      ok: boolean;
+      players: { id: string; teamId: string; email: string | null }[];
+    };
+
+    // Exactly 2 players visible: player A (self) and teammate B
+    expect(payload.players.length).toBe(2);
+    const self = payload.players.find((p) => p.id === playerARecord.id);
+    const teammate = payload.players.find((p) => p.id === teammateB.id);
+
+    expect(self).toBeDefined();
+    expect(self?.email).toBe(playerAUser.email); // Self email is visible
+
+    expect(teammate).toBeDefined();
+    expect(teammate?.email).toBeNull(); // Teammate email is MASKED (null)
+  });
+
+  it("GET /api/players: admin retains operational visibility across all teams with emails and reviewNotes", async () => {
+    const { team, tournament, org, stamp, city } = await createTestFixtures();
+
+    // Admin user
+    const adminUser = await prisma.user.create({
+      data: {
+        name: "League Admin",
+        email: `admin-${stamp}@devkics.test`,
+        passwordHash: await hashPassword("admin-password-123"),
+        citySlug: city.slug,
+      },
+    });
+    const adminAssignment = await prisma.roleAssignment.create({
+      data: { userId: adminUser.id, role: Role.ADMIN },
+    });
+    const adminSession = await issueSession(adminUser, [adminAssignment]);
+    const adminCookies = [adminSession.accessCookie, adminSession.refreshCookie];
+
+    // Player on Team 1 with review notes
+    await prisma.player.create({
+      data: {
+        teamId: team.id,
+        fullName: "Team 1 Player",
+        email: `p1-${stamp}@devkics.test`,
+        position: "GK",
+        status: PlayerStatus.APPROVED,
+        reviewNotes: "Admin verified ID and clearance",
+        waiverAcceptedAt: new Date(),
+      },
+    });
+
+    // Rival team and player
+    const rivalTeam = await prisma.team.create({
+      data: {
+        tournamentId: tournament.id,
+        organizationId: org.id,
+        name: `Rival FC ${stamp}`,
+        shortName: `RFC${String(stamp).slice(-1)}`,
+        company: "Rival Corp",
+        status: TeamStatus.APPROVED,
+      },
+    });
+    await prisma.player.create({
+      data: {
+        teamId: rivalTeam.id,
+        fullName: "Rival Player",
+        email: `rival-${stamp}@devkics.test`,
+        position: "FWD",
+        status: PlayerStatus.APPROVED,
+        reviewNotes: "Clearance pending proof of work",
+        waiverAcceptedAt: new Date(),
+      },
+    });
+
+    const res = await handleApiRequest(
+      new Request(`http://localhost:8080/api/players?tournamentId=${tournament.id}`, {
+        method: "GET",
+        headers: { cookie: toCookieHeader(adminCookies) },
+      }),
+    );
+    expect(res?.status).toBe(200);
+    const payload = (await res?.json()) as {
+      ok: boolean;
+      players: { id: string; email: string | null; reviewNotes: string | null }[];
+    };
+    expect(payload.players.length).toBe(2); // Admin sees both teams
+    expect(payload.players.every((p) => p.email !== null)).toBe(true); // Admin sees all emails
+    expect(payload.players.every((p) => p.reviewNotes !== null)).toBe(true); // Admin sees all review notes
+  });
 });

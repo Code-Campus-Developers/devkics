@@ -53,7 +53,9 @@ test.describe("Phase 4.4 — Performance, SEO & Caching", () => {
     expect(consoleErrors).toEqual([]);
   });
 
-  test("displays accessible EmptyState when filtering produces zero matches", async ({ page }) => {
+  test("displays accessible privacy gate EmptyState when unauthenticated user navigates to players registry", async ({
+    page,
+  }) => {
     const consoleErrors: string[] = [];
     page.on("console", (msg) => {
       if (msg.type() === "error") consoleErrors.push(msg.text());
@@ -62,15 +64,14 @@ test.describe("Phase 4.4 — Performance, SEO & Caching", () => {
     await page.goto("/abuja/players");
     await page.waitForLoadState("networkidle");
 
-    const searchInput = page.getByRole("textbox", { name: "Search players or roles" });
-    await searchInput.fill("nonexistent-player-xyz");
-
-    // EmptyState displays "No Players Found"
-    await expect(page.getByText("No Players Found")).toBeVisible();
-
-    // Clearing input restores player grid
-    await searchInput.fill("");
-    await expect(page.getByText("No Players Found")).toHaveCount(0);
+    // EmptyState displays "Sign In Required"
+    await expect(page.getByText("Sign In Required")).toBeVisible();
+    await expect(
+      page.getByText(/player identities and squad directories are private/i),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Sign In", exact: true }),
+    ).toBeVisible();
 
     expect(consoleErrors).toEqual([]);
   });

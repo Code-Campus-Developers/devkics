@@ -1,8 +1,9 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { Search } from "lucide-react";
 import { useState } from "react";
 
 import { EmptyState, PageHeader, TeamCrest } from "@/components/devkics/brand";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -16,9 +17,9 @@ import { canonicalLink, seoMeta } from "@/lib/seo";
 
 export const Route = createFileRoute("/$city/players")({
   head: ({ params }) => {
-    const title = "Players — DevKics Abuja";
+    const title = "Squad Registry — DevKics Abuja";
     const description =
-      "The full player registry for the DevKics Abuja Cup: engineers, designers and founders on the pitch.";
+      "Approved squad directory for the DevKics Abuja Cup: engineers, designers and founders on the pitch.";
     return {
       links: [canonicalLink(`/${params.city}/players`)],
       meta: seoMeta({
@@ -32,9 +33,50 @@ export const Route = createFileRoute("/$city/players")({
 });
 
 function PlayersPage() {
-  const { players, teams } = useDevKics();
+  const { players, teams, currentUser } = useDevKics();
   const [query, setQuery] = useState("");
   const [position, setPosition] = useState("all");
+
+  if (!currentUser) {
+    return (
+      <div>
+        <PageHeader
+          eyebrow="Registry"
+          title="Squad Roster Access"
+          description="Player registry access is restricted to authenticated squad members, managers, and officials."
+        />
+        <div className="mt-8">
+          <EmptyState
+            title="Sign In Required"
+            description="Player identities and squad directories are private. Please sign in to view your squad and teammates."
+            action={
+              <Button asChild size="sm" className="rounded-full">
+                <Link to="/auth">Sign In</Link>
+              </Button>
+            }
+          />
+        </div>
+      </div>
+    );
+  }
+
+  if (players.length === 0) {
+    return (
+      <div>
+        <PageHeader
+          eyebrow="Registry"
+          title="Squad Players"
+          description="View approved teammates and squad members."
+        />
+        <div className="mt-8">
+          <EmptyState
+            title="No Squad Members Found"
+            description="You do not currently have an approved squad membership. Join a team or await manager confirmation to view your squad."
+          />
+        </div>
+      </div>
+    );
+  }
 
   const filtered = players
     .filter((p) => (position === "all" ? true : p.position === position))
@@ -45,8 +87,8 @@ function PlayersPage() {
     <div>
       <PageHeader
         eyebrow="Registry"
-        title="Players"
-        description={`${players.length} registered players across the Abuja season.`}
+        title="Squad Players"
+        description={`${players.length} squad member${players.length === 1 ? "" : "s"} visible in your approved roster.`}
       />
 
       <div className="mt-8 flex flex-col gap-3 sm:flex-row">
