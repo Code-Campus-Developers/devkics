@@ -12,7 +12,7 @@ test.describe("Phase 4.4 — Performance, SEO & Caching", () => {
     await page.waitForLoadState("networkidle");
 
     const rootCanonical = page.locator('link[rel="canonical"]');
-    await expect(rootCanonical).toHaveAttribute("href", "https://devkics.com/");
+    await expect(rootCanonical).toHaveAttribute("href", "https://devkics.org/");
 
     const ogTitle = page.locator('meta[property="og:title"]');
     await expect(ogTitle).toHaveAttribute("content", /DevKics/);
@@ -25,7 +25,7 @@ test.describe("Phase 4.4 — Performance, SEO & Caching", () => {
     await page.waitForLoadState("networkidle");
 
     const fixturesCanonical = page.locator('link[rel="canonical"]');
-    await expect(fixturesCanonical).toHaveAttribute("href", "https://devkics.com/abuja/fixtures");
+    await expect(fixturesCanonical).toHaveAttribute("href", "https://devkics.org/abuja/fixtures");
 
     expect(consoleErrors).toEqual([]);
   });
@@ -39,15 +39,16 @@ test.describe("Phase 4.4 — Performance, SEO & Caching", () => {
     await page.goto("/");
     await page.waitForLoadState("networkidle");
 
-    // Hero banner is an LCP element: high fetch priority, async decoding, no lazy loading
-    const heroImage = page.locator(
-      'img[alt="Five-a-side football match under floodlights in Abuja"]',
-    );
-    await expect(heroImage).toBeVisible();
+    const heroImage = page.locator('img[alt="Football pitch under stadium lights"]');
+    await expect(heroImage).toHaveAttribute("loading", "eager");
     await expect(heroImage).toHaveAttribute("fetchpriority", "high");
-    await expect(heroImage).toHaveAttribute("decoding", "async");
-    const loadingAttr = await heroImage.getAttribute("loading");
-    expect(loadingAttr).not.toBe("lazy");
+    await expect(heroImage).toHaveAttribute("width", "1920");
+    await expect(heroImage).toHaveAttribute("height", "1080");
+
+    const communityImage = page.locator('img[alt="DevKics players celebrating with a trophy"]');
+    await expect(communityImage).toHaveAttribute("loading", "lazy");
+    await expect(communityImage).toHaveAttribute("width", "1400");
+    await expect(communityImage).toHaveAttribute("height", "900");
 
     expect(consoleErrors).toEqual([]);
   });
@@ -82,14 +83,14 @@ test.describe("Phase 4.4 — Performance, SEO & Caching", () => {
     expect(sitemapHeaders["cache-control"]).toContain("public");
 
     const sitemapText = await sitemapResponse.text();
-    expect(sitemapText).toContain("https://devkics.com/");
-    expect(sitemapText).toContain("https://devkics.com/abuja");
+    expect(sitemapText).toContain("https://devkics.org/");
+    expect(sitemapText).toContain("https://devkics.org/abuja");
 
     const robotsResponse = await request.get("/robots.txt");
     expect(robotsResponse.status()).toBe(200);
     const robotsText = await robotsResponse.text();
     expect(robotsText).toContain("User-agent: *");
     expect(robotsText).toContain("Disallow: /dashboard");
-    expect(robotsText).toContain("Sitemap: https://devkics.com/sitemap.xml");
+    expect(robotsText).toContain("Sitemap: https://devkics.org/sitemap.xml");
   });
 });

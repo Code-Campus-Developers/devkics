@@ -1036,7 +1036,7 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
   }
 
   if (request.method === "GET" && url.pathname === "/robots.txt") {
-    const robots = `User-agent: *\nAllow: /\nDisallow: /dashboard\nDisallow: /api/\n\nSitemap: https://devkics.com/sitemap.xml\n`;
+    const robots = `User-agent: *\nAllow: /\nDisallow: /dashboard\nDisallow: /api/\n\nSitemap: https://devkics.org/sitemap.xml\n`;
     return new Response(robots, {
       status: 200,
       headers: {

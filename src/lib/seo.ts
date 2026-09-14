@@ -1,4 +1,4 @@
-export const SITE_URL = "https://devkics.com";
+export const SITE_URL = "https://devkics.org";
 
 export function canonicalLink(path: string) {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;

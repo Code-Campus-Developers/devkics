@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 
-const SITE_URL = "https://devkics.com";
+const SITE_URL = "https://devkics.org";
 
 export async function generateSitemapXml(prisma: PrismaClient): Promise<string> {
   const [cities, teams] = await Promise.all([

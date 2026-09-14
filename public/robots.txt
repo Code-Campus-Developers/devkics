@@ -3,4 +3,4 @@ Allow: /
 Disallow: /dashboard
 Disallow: /api/
 
-Sitemap: https://devkics.com/sitemap.xml
+Sitemap: https://devkics.org/sitemap.xml

@@ -51,8 +51,8 @@ describe("SEO & Caching Integration Tests", () => {
     const body = await response.text();
     expect(body).toContain('<?xml version="1.0" encoding="UTF-8"?>');
     expect(body).toContain("<urlset");
-    expect(body).toContain("https://devkics.com/");
-    expect(body).toContain("https://devkics.com/abuja");
+    expect(body).toContain("https://devkics.org/");
+    expect(body).toContain("https://devkics.org/abuja");
   });
 
   it("serves robots.txt with text content type and references sitemap", async () => {
@@ -68,7 +68,7 @@ describe("SEO & Caching Integration Tests", () => {
     expect(body).toContain("User-agent: *");
     expect(body).toContain("Disallow: /dashboard");
     expect(body).toContain("Disallow: /api/");
-    expect(body).toContain("Sitemap: https://devkics.com/sitemap.xml");
+    expect(body).toContain("Sitemap: https://devkics.org/sitemap.xml");
   });
 
   it("serves read-only public endpoints with sensible caching headers", async () => {
