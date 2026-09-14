@@ -1358,7 +1358,11 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
 
   // cities
   if (request.method === "GET" && url.pathname === "/api/cities") {
-    const cities = await prisma.city.findMany({ orderBy: { name: "asc" } });
+    const includeAll = url.searchParams.get("includeAll") === "true";
+    const userIsAdmin = auth.user ? isAdmin(auth.user, auth.assignments) : false;
+    const where = includeAll || userIsAdmin ? {} : { status: CityStatus.LIVE };
+
+    const cities = await prisma.city.findMany({ where, orderBy: { name: "asc" } });
     const headers = new Headers(authHeaders);
     headers.set("cache-control", "public, max-age=60, stale-while-revalidate=120");
     return jsonResponse(200, { ok: true, cities: cities.map(mapCityPayload) }, headers);

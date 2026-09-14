@@ -32,9 +32,9 @@ function CitiesPage() {
   return (
     <div className="mx-auto max-w-6xl px-5 py-14">
       <PageHeader
-        eyebrow="Global network"
-        title="Find a city"
-        description="DevKics runs city by city. Abuja is our live pilot — the next chapters are being built now."
+        eyebrow="League Chapters"
+        title="DevKics Cities"
+        description="DevKics is currently live in Abuja, Nigeria for Season 1 at Riverplate Park."
       />
 
       <div className="relative mt-8 max-w-md">

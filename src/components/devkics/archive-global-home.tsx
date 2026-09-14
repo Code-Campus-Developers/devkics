@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { ArrowRight, CalendarDays, MapPin, Trophy, Users } from "lucide-react";
 
 import heroPitch from "@/assets/hero-pitch.jpg";
@@ -9,24 +9,14 @@ import { Badge } from "@/components/ui/badge";
 import { tournaments } from "@/lib/devkics/seed";
 import { useDevKics } from "@/lib/devkics/store";
 import { computeStandings } from "@/lib/devkics/standings";
+import { StatusDot } from "@/routes/index";
 
-import { canonicalLink, seoMeta } from "@/lib/seo";
-
-export const Route = createFileRoute("/")({
-  head: () => ({
-    links: [canonicalLink("/")],
-    meta: seoMeta({
-      title: "DevKics Abuja Cup 2026 — Tech Football League",
-      description:
-        "Season 1 live in Abuja, Nigeria. 8 tech companies and developer communities competing on the pitch at Riverplate Park.",
-      path: "/",
-    }),
-  }),
-  component: Home,
-});
-
-function Home() {
-  const { teams, fixtures, players, tournaments: liveTournaments } = useDevKics();
+/**
+ * Clean Archive of the original global multi-city DevKics landing page.
+ * Preserved for future multi-city expansion reference.
+ */
+export function ArchiveGlobalHome() {
+  const { teams, fixtures, players, cities, tournaments: liveTournaments } = useDevKics();
   const standings = computeStandings(teams, fixtures).slice(0, 4);
   const next = fixtures.filter((f) => f.status === "scheduled").slice(0, 3);
   const teamById = (id: string) => teams.find((t) => t.id === id);
@@ -38,10 +28,9 @@ function Home() {
       <section className="relative isolate overflow-hidden">
         <img
           src={heroPitch}
-          alt="Football pitch under stadium lights"
-          width={1920}
-          height={1080}
-          loading="eager"
+          alt="Five-a-side football match under floodlights in Abuja"
+          width={1600}
+          height={1008}
           fetchPriority="high"
           decoding="async"
           className="absolute inset-0 size-full object-cover"
@@ -51,7 +40,7 @@ function Home() {
         <div className="relative mx-auto max-w-6xl px-5 py-24 sm:py-32">
           <div className="rise-in max-w-3xl">
             <Badge className="rounded-full border-0 bg-primary-foreground/12 px-3 py-1 text-primary-foreground/90 backdrop-blur">
-              Season 1 Live · Abuja, Nigeria
+              Season 1 live in Abuja
             </Badge>
             <h1 className="mt-6 text-balance font-display text-5xl font-bold leading-[1.03] text-pitch-foreground sm:text-7xl">
               Where tech
@@ -59,13 +48,13 @@ function Home() {
               comes to <span className="text-gradient-brand">play</span>
             </h1>
             <p className="mt-6 max-w-xl text-lg text-pitch-foreground/75">
-              DevKics turns Abuja&apos;s tech community into football clubs. 8 engineering, design,
-              and product sides competing on the pitch at Riverplate Park.
+              DevKics turns technology communities into football clubs. Engineers, designers and
+              founders, one pitch, one city at a time.
             </p>
             <div className="mt-9 flex flex-wrap gap-3">
               <Button asChild size="lg" className="rounded-full px-7">
-                <Link to="/$city" params={{ city: "abuja" }}>
-                  Explore Abuja Cup <ArrowRight className="size-4" />
+                <Link to="/cities">
+                  Find your city <ArrowRight className="size-4" />
                 </Link>
               </Button>
               <Button
@@ -74,22 +63,20 @@ function Home() {
                 variant="outline"
                 className="rounded-full border-pitch-foreground/25 bg-transparent px-7 text-pitch-foreground hover:bg-primary-foreground/10 hover:text-pitch-foreground"
               >
-                <Link to="/$city/standings" params={{ city: "abuja" }}>
-                  Fixtures &amp; Standings
+                <Link to="/$city" params={{ city: "abuja" }}>
+                  Explore Abuja
                 </Link>
               </Button>
             </div>
             <dl className="mt-14 grid max-w-2xl grid-cols-3 gap-6 border-t border-pitch-foreground/15 pt-8">
               {[
-                { k: "8", v: "Tech teams" },
+                { k: "8", v: "Teams competing" },
                 { k: `${players.length}`, v: "Registered players" },
-                { k: "Riverplate Park", v: "Official pitch venue" },
+                { k: "6", v: "Cities in pipeline" },
               ].map((s) => (
                 <div key={s.v}>
-                  <dt className="font-display text-2xl font-bold text-pitch-foreground sm:text-3xl">
-                    {s.k}
-                  </dt>
-                  <dd className="mt-1 text-xs text-pitch-foreground/60 sm:text-sm">{s.v}</dd>
+                  <dt className="font-display text-3xl font-bold text-pitch-foreground">{s.k}</dt>
+                  <dd className="mt-1 text-sm text-pitch-foreground/60">{s.v}</dd>
                 </div>
               ))}
             </dl>
@@ -97,12 +84,12 @@ function Home() {
         </div>
       </section>
 
-      {/* Live Abuja Cup Snapshot */}
+      {/* Live city */}
       <section className="mx-auto max-w-6xl px-5 py-20">
         <SectionHeading
-          eyebrow="Live Season"
+          eyebrow="Pilot city"
           title={tournament.name}
-          description="Season 1 tournament standings and upcoming weekend fixtures at Riverplate Park, Abuja."
+          description={tournament.summary}
           action={
             <Button asChild variant="outline" className="rounded-full">
               <Link to="/$city" params={{ city: "abuja" }}>
@@ -151,7 +138,7 @@ function Home() {
                 params={{ city: "abuja" }}
                 className="text-sm font-medium text-primary hover:underline"
               >
-                All fixtures
+                Fixtures
               </Link>
             </div>
             <ul className="mt-4 space-y-3">
@@ -175,89 +162,82 @@ function Home() {
         </div>
       </section>
 
-      {/* Competing Tech Clubs */}
-      <section className="border-y border-border bg-secondary/30">
+      {/* How it works */}
+      <section className="border-y border-border bg-secondary/40">
         <div className="mx-auto max-w-6xl px-5 py-20">
           <SectionHeading
-            eyebrow="The Clubs"
-            title="8 Tech Teams on the Pitch"
-            description="Software engineering teams, tech hubs, and developer collectives battling for the Abuja title."
-            action={
-              <Button asChild variant="outline" className="rounded-full">
-                <Link to="/$city/teams" params={{ city: "abuja" }}>
-                  View all teams
-                </Link>
-              </Button>
-            }
+            eyebrow="How it works"
+            title="Three steps from Slack channel to kick-off"
+            align="center"
           />
-          <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {teams.slice(0, 8).map((team) => (
-              <Link
-                key={team.id}
-                to="/$city/teams/$teamId"
-                params={{ city: "abuja", teamId: team.id }}
-                className="card-lift group rounded-2xl border border-border bg-card p-5"
-              >
-                <div className="flex items-center gap-3.5">
-                  <TeamCrest team={team} size="md" />
-                  <div className="min-w-0 flex-1">
-                    <h4 className="truncate font-display text-base font-bold group-hover:text-primary">
-                      {team.name}
-                    </h4>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {team.company || "Abuja Tech Community"}
-                    </p>
-                  </div>
+          <div className="mt-12 grid gap-6 md:grid-cols-3">
+            {[
+              {
+                icon: MapPin,
+                title: "Find your city",
+                body: "Join a live DevKics city or apply to open a new chapter for your community.",
+              },
+              {
+                icon: Users,
+                title: "Build your team",
+                body: "Register your company or community side and invite players into your squad.",
+              },
+              {
+                icon: Trophy,
+                title: "Compete",
+                body: "Play the season, track live standings, and fight for the city cup.",
+              },
+            ].map((s, i) => (
+              <div key={s.title} className="card-lift rounded-3xl border border-border bg-card p-7">
+                <div className="flex items-center gap-3">
+                  <span className="grid size-11 place-items-center rounded-xl bg-primary/10 text-primary">
+                    <s.icon className="size-5" />
+                  </span>
+                  <span className="font-display text-sm font-bold text-muted-foreground">
+                    0{i + 1}
+                  </span>
                 </div>
-              </Link>
+                <h3 className="mt-5 text-lg font-semibold">{s.title}</h3>
+                <p className="mt-2 text-sm text-muted-foreground">{s.body}</p>
+              </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* How the Season Works */}
+      {/* Cities */}
       <section className="mx-auto max-w-6xl px-5 py-20">
         <SectionHeading
-          eyebrow="How it works"
-          title="From Team Slack Channel to Kick-off"
-          align="center"
+          eyebrow="Global map"
+          title="Cities on the DevKics map"
+          description="Abuja is live. The next chapters are opening now."
+          action={
+            <Button asChild variant="outline" className="rounded-full">
+              <Link to="/cities">All cities</Link>
+            </Button>
+          }
         />
-        <div className="mt-12 grid gap-6 md:grid-cols-3">
-          {[
-            {
-              icon: Users,
-              title: "Build your squad",
-              body: "Register company teams or tech community sides. Invite verified engineers and teammates into your roster.",
-            },
-            {
-              icon: MapPin,
-              title: "Riverplate Park pitch",
-              body: "Compete under the floodlights every weekend on dedicated turf with professional match officials and referees.",
-            },
-            {
-              icon: Trophy,
-              title: "Fight for the cup",
-              body: "Track live matchday results, table standings, and individual statistics all season long.",
-            },
-          ].map((s, i) => (
-            <div key={s.title} className="card-lift rounded-3xl border border-border bg-card p-7">
-              <div className="flex items-center gap-3">
-                <span className="grid size-11 place-items-center rounded-xl bg-primary/10 text-primary">
-                  <s.icon className="size-5" />
-                </span>
-                <span className="font-display text-sm font-bold text-muted-foreground">
-                  0{i + 1}
-                </span>
+        <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {cities.slice(0, 6).map((city) => (
+            <Link
+              key={city.slug}
+              to={city.status === "live" ? "/$city" : "/cities"}
+              params={{ city: city.slug }}
+              className="card-lift group rounded-2xl border border-border bg-card p-6"
+            >
+              <div className="flex items-center justify-between">
+                <h3 className="font-display text-xl font-bold">{city.name}</h3>
+                <StatusDot status={city.status} />
               </div>
-              <h3 className="mt-5 text-lg font-semibold">{s.title}</h3>
-              <p className="mt-2 text-sm text-muted-foreground">{s.body}</p>
-            </div>
+              <p className="mt-1 text-sm text-muted-foreground">{city.country}</p>
+              <p className="mt-4 text-sm text-muted-foreground">{city.tagline}</p>
+            </Link>
           ))}
         </div>
       </section>
 
-      {/* Matchday Community Spotlight */}
-      <section className="mx-auto max-w-6xl px-5 pb-8">
+      {/* Community CTA */}
+      <section className="mx-auto max-w-6xl px-5 pb-4">
         <div className="grid overflow-hidden rounded-3xl border border-border bg-card lg:grid-cols-2">
           <img
             src={community}
@@ -269,42 +249,22 @@ function Home() {
             className="h-64 w-full object-cover lg:h-full"
           />
           <div className="p-8 sm:p-12">
-            <Badge variant="secondary" className="rounded-full">
-              Matchdays in Abuja
-            </Badge>
-            <h2 className="mt-4 text-3xl font-bold">Experience Matchday at Riverplate Park</h2>
+            <h2 className="text-3xl font-bold">Bring DevKics to your city</h2>
             <p className="mt-4 text-muted-foreground">
-              Software engineers, designers, founders, and community supporters gather every
-              Saturday under the lights. Catch live matches, network with fellow tech builders, and
-              cheer on your team.
+              We provide the playbook, the platform and sponsorship support. You bring the community
+              and the pitch.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Button asChild className="rounded-full px-6">
-                <Link to="/$city/fixtures" params={{ city: "abuja" }}>
-                  View Match Schedule
-                </Link>
+                <Link to="/organize">Become a city organizer</Link>
               </Button>
               <Button asChild variant="ghost" className="rounded-full">
-                <Link to="/volunteer">Volunteer on Matchdays</Link>
+                <Link to="/volunteer">Volunteer instead</Link>
               </Button>
             </div>
           </div>
         </div>
       </section>
     </>
-  );
-}
-
-export function StatusDot({ status }: { status: string }) {
-  const map: Record<string, { label: string; cls: string }> = {
-    live: { label: "Live", cls: "bg-primary/12 text-primary" },
-    "applications-open": { label: "Applications open", cls: "bg-flare/20 text-flare-foreground" },
-    "coming-soon": { label: "Coming soon", cls: "bg-muted text-muted-foreground" },
-  };
-  const item = map[status] ?? map["coming-soon"]!;
-  return (
-    <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${item.cls}`}>
-      {item.label}
-    </span>
   );
 }
