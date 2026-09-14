@@ -25,10 +25,8 @@ import { cn } from "@/lib/utils";
 
 const nav = [
   { label: "Cities", to: "/cities" },
-  { label: "Abuja", to: "/abuja" },
   { label: "News", to: "/abuja/news" },
   { label: "Volunteer", to: "/volunteer" },
-  { label: "Host a city", to: "/organize" },
 ];
 
 export function SiteHeader() {
@@ -218,12 +216,12 @@ export function SiteFooter() {
 
   return (
     <footer className="surface-pitch mt-24">
-      <div className="mx-auto grid max-w-6xl gap-10 px-5 py-14 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mx-auto grid max-w-6xl gap-10 px-5 py-14 sm:grid-cols-2 lg:grid-cols-3">
         <div>
           <Logo variant="light" />
           <p className="mt-4 max-w-xs text-sm text-pitch-foreground/70">
-            DevKics is a global football league for technology communities. Pilot season live in
-            Abuja, with new cities opening every quarter.
+            DevKics turns technology communities into football clubs. Engineers, designers, and
+            founders on the pitch.
           </p>
         </div>
         <FooterCol
@@ -233,15 +231,6 @@ export function SiteFooter() {
             { label: `${cityName} portal`, to: `/${citySlug}` },
             { label: "Fixtures", to: `/${citySlug}/fixtures` },
             { label: "Standings", to: `/${citySlug}/standings` },
-          ]}
-        />
-        <FooterCol
-          title="Get involved"
-          links={[
-            { label: "Volunteer", to: "/volunteer" },
-            { label: "Become an organizer", to: "/organize" },
-            { label: "Sponsors", to: `/${citySlug}/sponsors` },
-            { label: "Sign in", to: "/auth" },
           ]}
         />
         <FooterCol
@@ -257,7 +246,7 @@ export function SiteFooter() {
       </div>
       <div className="border-t border-pitch-foreground/10">
         <div className="mx-auto max-w-6xl px-5 py-5 text-xs text-pitch-foreground/55">
-          © 2026 DevKics · A CodeCampus Online initiative
+          © 2026 DevKics · A Code Campus International initiative
         </div>
       </div>
     </footer>
