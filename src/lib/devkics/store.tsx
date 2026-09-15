@@ -127,6 +127,14 @@ interface StoreValue {
     },
   ) => Promise<Player>;
   removePlayer: (playerId: string) => Promise<void>;
+  updatePlayer: (
+    playerId: string,
+    input: {
+      position?: Player["position"];
+      number?: number | null;
+      role?: string | null;
+    },
+  ) => Promise<void>;
   reviewPlayer: (
     playerId: string,
     status: "approved" | "withdrawn" | "suspended" | "disqualified",
@@ -494,7 +502,8 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
         method: "GET",
       });
     },
-    staleTime: 15_000,
+    staleTime: 10_000,
+    refetchInterval: currentUser ? 10_000 : false,
     refetchOnWindowFocus: true,
     retry: false,
     enabled: !!currentUser,
@@ -526,7 +535,8 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
       );
       return payload.players.map(normalizePlayer);
     },
-    staleTime: 20_000,
+    staleTime: 10_000,
+    refetchInterval: currentUser ? 10_000 : false,
     refetchOnWindowFocus: false,
     retry: false,
     enabled: !!activeTournamentId && !!currentUser,
@@ -834,6 +844,17 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
     [refreshDomain],
   );
 
+  const updatePlayer = useCallback<StoreValue["updatePlayer"]>(
+    async (playerId, input) => {
+      await api<{ player: Player }>(`/api/players/${encodeURIComponent(playerId)}`, {
+        method: "PATCH",
+        body: JSON.stringify(input),
+      });
+      await refreshDomain();
+    },
+    [refreshDomain],
+  );
+
   const reviewPlayer = useCallback<StoreValue["reviewPlayer"]>(
     async (playerId, status, reviewNotes, position) => {
       await api<{ player: Player }>(`/api/players/${encodeURIComponent(playerId)}`, {
@@ -1097,6 +1118,7 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
     respondToInvitation,
     requestToJoinTeam,
     removePlayer,
+    updatePlayer,
     reviewPlayer,
     addFixture,
     updateResult,

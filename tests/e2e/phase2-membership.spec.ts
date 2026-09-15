@@ -77,7 +77,7 @@ async function createManagerWithTeam(suffix: string) {
       tournamentId: tournament.id,
       organizationId: org.id,
       name: `FC ${suffix}`,
-      shortName: suffix.slice(0, 3).toUpperCase(),
+      shortName: `${suffix.replace(/[^a-zA-Z0-9]/g, "").slice(-3).toUpperCase()}${Math.floor(Math.random() * 10)}`,
       company: org.name,
       managerUserId: managerUser.id,
       status: "APPROVED",
@@ -91,7 +91,7 @@ async function createManagerWithTeam(suffix: string) {
     data: { teamId: team.id },
   });
 
-  return { managerUser, email, password: "devkics123", team };
+  return { managerUser, email, password: "devkics123", team, city };
 }
 
 test.describe("Player ↔ Team Membership Frontend Flows", () => {
@@ -352,5 +352,122 @@ test.describe("Player ↔ Team Membership Frontend Flows", () => {
     ).toBeVisible();
 
     await playerContext.close();
+  });
+
+  test("Manager three-dot roster actions: View Details, Edit Player, and Remove from Squad with confirmation", async ({
+    page,
+  }) => {
+    const timestamp = Date.now().toString().slice(-6);
+    const { email, password, team, city } = await createManagerWithTeam(`p5-${timestamp}`);
+
+    // Create an approved player directly for this team
+    const playerUser = await prisma.user.create({
+      data: {
+        email: `player-p5-${timestamp}@devkics.test`,
+        name: `Roster Player ${timestamp}`,
+        passwordHash: await hashPassword("player123"),
+        citySlug: city.slug,
+        assignments: {
+          create: {
+            role: Role.PLAYER,
+            cityId: city.id,
+            countryCode: city.countryCode,
+          },
+        },
+      },
+    });
+
+    const player = await prisma.player.create({
+      data: {
+        teamId: team.id,
+        userId: playerUser.id,
+        fullName: playerUser.name,
+        email: playerUser.email,
+        position: "MID",
+        number: 7,
+        role: "Starter",
+        status: "APPROVED",
+        waiverAcceptedAt: new Date(),
+        emergencyContactName: "Emergency Person",
+        emergencyContactPhone: "+2348099887766",
+      },
+    });
+
+    await prisma.user.update({
+      where: { id: playerUser.id },
+      data: { teamId: team.id, playerId: player.id },
+    });
+
+    // 1. Manager logs in
+    await page.goto("/auth");
+    await page.waitForLoadState("networkidle");
+
+    const signInPanel = page.getByRole("tabpanel", { name: "Sign in" });
+    await signInPanel.getByPlaceholder("you@company.com").fill(email);
+    await signInPanel.getByPlaceholder("••••••••").fill(password);
+    await signInPanel.getByRole("button", { name: "Sign in" }).click();
+
+    await page.waitForURL("**/dashboard");
+
+    // Navigate to squad tab
+    await page.getByRole("tab", { name: /Squad/ }).click();
+    await expect(page.getByText(`Roster Player ${timestamp}`, { exact: true })).toBeVisible();
+
+    // 2. Click three-dot action button
+    await page.getByRole("button", { name: `Actions for Roster Player ${timestamp}` }).click();
+
+    // Click "View Details"
+    await page.getByRole("menuitem", { name: /View Details/i }).click();
+    const detailsDialog = page.getByRole("dialog");
+    await expect(
+      detailsDialog.getByText("Squad registration and verified operational information."),
+    ).toBeVisible();
+    await expect(detailsDialog.getByText("Emergency Person")).toBeVisible();
+    await expect(detailsDialog.getByText("+2348099887766")).toBeVisible();
+    await detailsDialog.getByRole("button", { name: "Close" }).first().click();
+
+    // 3. Edit Player
+    await page.getByRole("button", { name: `Actions for Roster Player ${timestamp}` }).click();
+    await page.getByRole("menuitem", { name: /Edit Player/i }).click();
+    const editDialog = page.getByRole("dialog");
+    await expect(editDialog.getByText(`Edit Player — Roster Player ${timestamp}`)).toBeVisible();
+
+    // Change position to FWD
+    await editDialog.getByLabel("Position").click();
+    await page.getByRole("option", { name: "Forward (FWD)" }).click();
+
+    // Change kit number to 10
+    await editDialog.getByLabel("Kit Number (1–99)").fill("10");
+
+    // Change role
+    await editDialog.getByLabel("Squad Role (Optional)").fill("Captain");
+
+    await editDialog.getByRole("button", { name: "Save Changes" }).click();
+    await expect(page.getByText("Player details updated")).toBeVisible();
+
+    // Verify row has updated info
+    await expect(page.getByText("#10")).toBeVisible();
+    await expect(page.getByText(/FWD · Captain/)).toBeVisible();
+
+    // 4. Remove from squad with confirmation
+    await page.getByRole("button", { name: `Actions for Roster Player ${timestamp}` }).click();
+    await page.getByRole("menuitem", { name: /Remove from Squad/i }).click();
+
+    const removeAlert = page.getByRole("alertdialog");
+    await expect(removeAlert.getByText("Remove Player from Squad?")).toBeVisible();
+    await expect(removeAlert.getByText(`Roster Player ${timestamp}`)).toBeVisible();
+
+    // Click cancel first to verify non-destructive
+    await removeAlert.getByRole("button", { name: "Cancel" }).click();
+    await expect(page.getByText(`Roster Player ${timestamp}`, { exact: true })).toBeVisible();
+
+    // Open again and confirm removal
+    await page.getByRole("button", { name: `Actions for Roster Player ${timestamp}` }).click();
+    await page.getByRole("menuitem", { name: /Remove from Squad/i }).click();
+    const confirmAlert = page.getByRole("alertdialog");
+    await confirmAlert.getByRole("button", { name: "Remove Player" }).click();
+
+    await expect(page.getByText(/removed from squad/i)).toBeVisible();
+    await expect(page.getByText(`Roster Player ${timestamp}`, { exact: true })).not.toBeVisible();
   });
 });

@@ -1622,4 +1622,366 @@ describe("Player ↔ Team Membership Lifecycle", () => {
       expect(rejectedDb?.reviewNotes).toBe("Only GK slot was open on this roster"); // Review notes separate!
     });
   });
+
+  describe("Phase 5: Manager Roster Management, Editing, Removal, and Operational Privacy", () => {
+    it("manager can safely edit player position, kit number (1–99), and role on their own team without status transition, dispatching player.squad.updated notification", async () => {
+      const { team, managerCookies, otherUser } = await createTestFixtures();
+
+      const player = await prisma.player.create({
+        data: {
+          teamId: team.id,
+          userId: otherUser.id,
+          fullName: otherUser.name,
+          email: otherUser.email,
+          position: "MID",
+          number: 7,
+          role: "Starter",
+          status: PlayerStatus.APPROVED,
+          waiverAcceptedAt: new Date(),
+        },
+      });
+
+      const res = await handleApiRequest(
+        new Request(`http://localhost:8080/api/players/${player.id}`, {
+          method: "PATCH",
+          headers: {
+            "content-type": "application/json",
+            cookie: toCookieHeader(managerCookies),
+          },
+          body: JSON.stringify({
+            position: "FWD",
+            number: 10,
+            role: "Captain",
+          }),
+        }),
+      );
+
+      expect(res?.status).toBe(200);
+      const data = await res?.json();
+      expect(data.ok).toBe(true);
+      expect(data.player.position).toBe("FWD");
+      expect(data.player.number).toBe(10);
+      expect(data.player.role).toBe("Captain");
+      expect(data.player.status).toBe("approved");
+
+      // Verify DB
+      const updatedDb = await prisma.player.findUnique({ where: { id: player.id } });
+      expect(updatedDb?.position).toBe("FWD");
+      expect(updatedDb?.number).toBe(10);
+      expect(updatedDb?.role).toBe("Captain");
+      expect(updatedDb?.status).toBe(PlayerStatus.APPROVED);
+
+      // Verify audit log
+      const audit = await prisma.auditLog.findFirst({
+        where: {
+          resourceId: player.id,
+          action: "player.squad.updated",
+        },
+      });
+      expect(audit).not.toBeNull();
+      expect((audit?.oldValue as Record<string, unknown>)["position"]).toBe("MID");
+      expect((audit?.oldValue as Record<string, unknown>)["number"]).toBe(7);
+      expect((audit?.newValue as Record<string, unknown>)["position"]).toBe("FWD");
+      expect((audit?.newValue as Record<string, unknown>)["number"]).toBe(10);
+
+      // Verify dedicated notification
+      const notification = await prisma.notification.findFirst({
+        where: {
+          recipientUserId: otherUser.id,
+          type: "player.squad.updated",
+        },
+      });
+      expect(notification).not.toBeNull();
+      expect(notification?.title).toBe("Squad details updated");
+      expect(notification?.body).toContain(team.name);
+    });
+
+    it("blocks cross-team edits: rival manager receives 403 Forbidden when trying to edit another team's player", async () => {
+      const { city, tournament, team, otherUser } = await createTestFixtures();
+
+      // Rival manager and team
+      const stamp = Date.now();
+      const rivalManager = await prisma.user.create({
+        data: {
+          name: "Rival Manager",
+          email: `rival-${stamp}@devkics.test`,
+          passwordHash: await hashPassword("password123"),
+          citySlug: city.slug,
+        },
+      });
+      const rivalAssignment = await prisma.roleAssignment.create({
+        data: {
+          userId: rivalManager.id,
+          role: Role.MANAGER,
+          cityId: city.id,
+          countryCode: "NG",
+        },
+      });
+      const rivalOrg = await prisma.organization.create({
+        data: {
+          name: `Rival Org ${stamp}`,
+          slug: `rival-org-${stamp}`,
+          description: "Rival organization",
+          email: rivalManager.email,
+          cityId: city.id,
+          ownerUserId: rivalManager.id,
+          status: OrganizationStatus.APPROVED,
+        },
+      });
+      await prisma.team.create({
+        data: {
+          tournamentId: tournament.id,
+          organizationId: rivalOrg.id,
+          name: `Rival FC ${stamp}`,
+          shortName: "RFC",
+          company: "Rival Co",
+          managerUserId: rivalManager.id,
+          status: TeamStatus.APPROVED,
+        },
+      });
+      const rivalSession = await issueSession(rivalManager, [rivalAssignment]);
+      const rivalCookies = [rivalSession.accessCookie, rivalSession.refreshCookie];
+
+      const player = await prisma.player.create({
+        data: {
+          teamId: team.id,
+          userId: otherUser.id,
+          fullName: otherUser.name,
+          email: otherUser.email,
+          position: "MID",
+          number: 7,
+          role: "Starter",
+          status: PlayerStatus.APPROVED,
+          waiverAcceptedAt: new Date(),
+        },
+      });
+
+      const res = await handleApiRequest(
+        new Request(`http://localhost:8080/api/players/${player.id}`, {
+          method: "PATCH",
+          headers: {
+            "content-type": "application/json",
+            cookie: toCookieHeader(rivalCookies),
+          },
+          body: JSON.stringify({
+            position: "FWD",
+            number: 99,
+          }),
+        }),
+      );
+
+      expect(res?.status).toBe(403);
+    });
+
+    it("enforces roster locks: manager cannot edit player squad details when team squad is locked", async () => {
+      const { team, managerCookies, otherUser } = await createTestFixtures();
+
+      await prisma.team.update({
+        where: { id: team.id },
+        data: { squadLockedAt: new Date() },
+      });
+
+      const player = await prisma.player.create({
+        data: {
+          teamId: team.id,
+          userId: otherUser.id,
+          fullName: otherUser.name,
+          email: otherUser.email,
+          position: "MID",
+          number: 7,
+          role: "Starter",
+          status: PlayerStatus.APPROVED,
+          waiverAcceptedAt: new Date(),
+        },
+      });
+
+      const res = await handleApiRequest(
+        new Request(`http://localhost:8080/api/players/${player.id}`, {
+          method: "PATCH",
+          headers: {
+            "content-type": "application/json",
+            cookie: toCookieHeader(managerCookies),
+          },
+          body: JSON.stringify({
+            number: 11,
+          }),
+        }),
+      );
+
+      expect(res?.status).toBe(409);
+      const data = await res?.json();
+      expect(data.error).toMatch(/roster.*locked/i);
+    });
+
+    it("manager can remove player from squad, setting status WITHDRAWN and dispatching player.squad.removed notification", async () => {
+      const { team, managerCookies, otherUser } = await createTestFixtures();
+
+      const player = await prisma.player.create({
+        data: {
+          teamId: team.id,
+          userId: otherUser.id,
+          fullName: otherUser.name,
+          email: otherUser.email,
+          position: "MID",
+          number: 7,
+          role: "Starter",
+          status: PlayerStatus.APPROVED,
+          waiverAcceptedAt: new Date(),
+        },
+      });
+
+      // Also set user's pointers to simulate active squad membership
+      await prisma.user.update({
+        where: { id: otherUser.id },
+        data: {
+          playerId: player.id,
+          teamId: team.id,
+        },
+      });
+
+      const res = await handleApiRequest(
+        new Request(`http://localhost:8080/api/players/${player.id}`, {
+          method: "PATCH",
+          headers: {
+            "content-type": "application/json",
+            cookie: toCookieHeader(managerCookies),
+          },
+          body: JSON.stringify({
+            status: "withdrawn",
+          }),
+        }),
+      );
+
+      expect(res?.status).toBe(200);
+
+      // Verify DB
+      const updatedDb = await prisma.player.findUnique({ where: { id: player.id } });
+      expect(updatedDb?.status).toBe(PlayerStatus.WITHDRAWN);
+
+      // Verify user pointers cleared
+      const updatedUser = await prisma.user.findUnique({ where: { id: otherUser.id } });
+      expect(updatedUser?.teamId).toBeNull();
+      expect(updatedUser?.playerId).toBeNull();
+
+      // Verify audit log
+      const audit = await prisma.auditLog.findFirst({
+        where: {
+          resourceId: player.id,
+          action: "player.squad.removed",
+        },
+      });
+      expect(audit).not.toBeNull();
+
+      // Verify dedicated notification
+      const notification = await prisma.notification.findFirst({
+        where: {
+          recipientUserId: otherUser.id,
+          type: "player.squad.removed",
+        },
+      });
+      expect(notification).not.toBeNull();
+      expect(notification?.title).toBe("Removed from squad");
+      expect(notification?.body).toContain(team.name);
+    });
+
+    it("operational data disclosure: emergency contact and waiver timestamps are exposed only to authorized viewers (manager/self/admin), while medical data is protected", async () => {
+      const { city, team, managerCookies, otherUser } = await createTestFixtures();
+
+      const stamp = Date.now();
+      // Create a teammate
+      const teammateUser = await prisma.user.create({
+        data: {
+          name: "Teammate User",
+          email: `teammate-${stamp}@devkics.test`,
+          passwordHash: await hashPassword("password123"),
+          citySlug: city.slug,
+        },
+      });
+      const teammateAssignment = await prisma.roleAssignment.create({
+        data: {
+          userId: teammateUser.id,
+          role: Role.PLAYER,
+          cityId: city.id,
+          countryCode: "NG",
+        },
+      });
+      const teammateSession = await issueSession(teammateUser, [teammateAssignment]);
+      const teammateCookies = [teammateSession.accessCookie, teammateSession.refreshCookie];
+
+      await prisma.player.create({
+        data: {
+          teamId: team.id,
+          userId: teammateUser.id,
+          fullName: teammateUser.name,
+          email: teammateUser.email,
+          position: "DEF",
+          number: 4,
+          status: PlayerStatus.APPROVED,
+          waiverAcceptedAt: new Date(),
+        },
+      });
+
+      const player = await prisma.player.create({
+        data: {
+          teamId: team.id,
+          userId: otherUser.id,
+          fullName: otherUser.name,
+          email: otherUser.email,
+          position: "FWD",
+          number: 9,
+          role: "Striker",
+          status: PlayerStatus.APPROVED,
+          emergencyContactName: "Jane Doe",
+          emergencyContactPhone: "+2348012345678",
+          medicalDeclaration: "Asthma - uses inhaler",
+          waiverAcceptedAt: new Date(),
+          mediaConsentAcceptedAt: new Date(),
+        },
+      });
+
+      // 1. Manager queries players
+      const managerRes = await handleApiRequest(
+        new Request(`http://localhost:8080/api/players?teamId=${team.id}`, {
+          method: "GET",
+          headers: {
+            cookie: toCookieHeader(managerCookies),
+          },
+        }),
+      );
+      expect(managerRes?.status).toBe(200);
+      const managerData = await managerRes?.json();
+      const managerPlayer = managerData.players.find((p: { id: string }) => p.id === player.id);
+      expect(managerPlayer).toBeDefined();
+      expect(managerPlayer.emergencyContactName).toBe("Jane Doe");
+      expect(managerPlayer.emergencyContactPhone).toBe("+2348012345678");
+      expect(managerPlayer.waiverAcceptedAt).toBeTruthy();
+      expect(managerPlayer.mediaConsentAcceptedAt).toBeTruthy();
+      // Medical declaration must NEVER be exposed
+      expect((managerPlayer as Record<string, unknown>)["medicalDeclaration"]).toBeUndefined();
+
+      // 2. Teammate queries players
+      const teammateRes = await handleApiRequest(
+        new Request(`http://localhost:8080/api/players?teamId=${team.id}`, {
+          method: "GET",
+          headers: {
+            cookie: toCookieHeader(teammateCookies),
+          },
+        }),
+      );
+      expect(teammateRes?.status).toBe(200);
+      const teammateData = await teammateRes?.json();
+      const teammateViewOfPlayer = teammateData.players.find(
+        (p: { id: string }) => p.id === player.id,
+      );
+      expect(teammateViewOfPlayer).toBeDefined();
+      // Operational fields hidden from teammate
+      expect(teammateViewOfPlayer.emergencyContactName).toBeNull();
+      expect(teammateViewOfPlayer.emergencyContactPhone).toBeNull();
+      expect(teammateViewOfPlayer.waiverAcceptedAt).toBeNull();
+      expect(teammateViewOfPlayer.mediaConsentAcceptedAt).toBeNull();
+      expect(
+        (teammateViewOfPlayer as Record<string, unknown>)["medicalDeclaration"],
+      ).toBeUndefined();
+    });
+  });
 });

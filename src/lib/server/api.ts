@@ -289,15 +289,21 @@ function mapPlayerPayload(
     role: string | null;
     status: PlayerStatus;
     reviewNotes: string | null;
+    emergencyContactName?: string | null;
+    emergencyContactPhone?: string | null;
+    waiverAcceptedAt?: Date | null;
+    mediaConsentAcceptedAt?: Date | null;
     submittedAt: Date;
   },
   options: {
     includeReviewNotes?: boolean;
     includeEmail?: boolean;
     includeNegotiation?: boolean;
+    includeOperational?: boolean;
   } = {},
 ) {
   const showNegotiation = options.includeNegotiation !== false;
+  const showOperational = options.includeOperational === true;
   return {
     id: player.id,
     teamId: player.teamId,
@@ -311,6 +317,14 @@ function mapPlayerPayload(
     role: player.role,
     status: mapPlayerStatus(player.status),
     reviewNotes: options.includeReviewNotes ? player.reviewNotes : null,
+    emergencyContactName: showOperational ? (player.emergencyContactName ?? null) : null,
+    emergencyContactPhone: showOperational ? (player.emergencyContactPhone ?? null) : null,
+    waiverAcceptedAt:
+      showOperational && player.waiverAcceptedAt ? player.waiverAcceptedAt.toISOString() : null,
+    mediaConsentAcceptedAt:
+      showOperational && player.mediaConsentAcceptedAt
+        ? player.mediaConsentAcceptedAt.toISOString()
+        : null,
     submittedAt: player.submittedAt.toISOString(),
   };
 }
@@ -574,16 +588,20 @@ const playerJoinRequestSchema = z.object({
 });
 
 const playerReviewSchema = z.object({
-  status: z.enum([
-    "registration-incomplete",
-    "pending-approval",
-    "approved",
-    "suspended",
-    "withdrawn",
-    "disqualified",
-  ]),
+  status: z
+    .enum([
+      "registration-incomplete",
+      "pending-approval",
+      "approved",
+      "suspended",
+      "withdrawn",
+      "disqualified",
+    ])
+    .optional(),
   reviewNotes: z.string().max(2000).optional(),
   position: z.enum(["GK", "DEF", "MID", "FWD"]).optional(),
+  number: z.number().int().min(1).max(99).nullable().optional(),
+  role: z.string().trim().max(100).nullable().optional(),
 });
 
 const fixtureCreateSchema = z.object({
@@ -2451,6 +2469,10 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
           role: true,
           status: true,
           reviewNotes: true,
+          emergencyContactName: true,
+          emergencyContactPhone: true,
+          waiverAcceptedAt: true,
+          mediaConsentAcceptedAt: true,
           submittedAt: true,
         },
         orderBy: { submittedAt: "desc" },
@@ -2477,6 +2499,7 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
             includeReviewNotes: canViewAllPlayerReviewNotes || isSelf,
             includeEmail: canViewSensitive,
             includeNegotiation: canViewSensitive,
+            includeOperational: canViewSensitive,
           });
         }),
         page,
@@ -3114,6 +3137,8 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         position: true,
         proposedPosition: true,
         positionNotes: true,
+        number: true,
+        role: true,
         waiverAcceptedAt: true,
         user: { select: { id: true, email: true } },
         team: {
@@ -3155,18 +3180,23 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       return jsonResponse(400, { ok: false, error: "Invalid payload" }, authHeaders);
     }
 
-    const nextStatus = statusFromKebab(parsed.data.status, Object.values(PlayerStatus));
-    try {
-      assertPlayerTransition(existing.status, nextStatus);
-    } catch (error) {
-      return jsonResponse(
-        409,
-        { ok: false, error: error instanceof Error ? error.message : "Invalid transition" },
-        authHeaders,
-      );
+    const nextStatus = parsed.data.status
+      ? statusFromKebab(parsed.data.status, Object.values(PlayerStatus))
+      : existing.status;
+
+    if (parsed.data.status) {
+      try {
+        assertPlayerTransition(existing.status, nextStatus);
+      } catch (error) {
+        return jsonResponse(
+          409,
+          { ok: false, error: error instanceof Error ? error.message : "Invalid transition" },
+          authHeaders,
+        );
+      }
     }
 
-    if (nextStatus === PlayerStatus.APPROVED && !existing.waiverAcceptedAt) {
+    if (parsed.data.status && nextStatus === PlayerStatus.APPROVED && !existing.waiverAcceptedAt) {
       return jsonResponse(
         400,
         { ok: false, error: "Cannot approve player without accepted participation waiver" },
@@ -3185,10 +3215,12 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       data: {
         status: nextStatus,
         position: nextPosition,
+        ...(parsed.data.number !== undefined ? { number: parsed.data.number } : {}),
+        ...(parsed.data.role !== undefined ? { role: parsed.data.role } : {}),
         ...(nextStatus === PlayerStatus.APPROVED || nextStatus === PlayerStatus.WITHDRAWN
           ? { proposedPosition: null, positionNotes: null }
           : {}),
-        reviewNotes: parsed.data.reviewNotes ?? null,
+        ...(parsed.data.reviewNotes !== undefined ? { reviewNotes: parsed.data.reviewNotes } : {}),
         reviewerUserId: auth.user.id,
         reviewedAt: new Date(),
       },
@@ -3205,6 +3237,10 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         role: true,
         status: true,
         reviewNotes: true,
+        emergencyContactName: true,
+        emergencyContactPhone: true,
+        waiverAcceptedAt: true,
+        mediaConsentAcceptedAt: true,
         submittedAt: true,
       },
     });
@@ -3236,22 +3272,74 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       }
     }
 
+    const targetRecipientEmail = existing.user?.email ?? existing.email;
+    const isRemoval =
+      existing.status === PlayerStatus.APPROVED && nextStatus === PlayerStatus.WITHDRAWN;
+    const isSquadDetailsUpdate =
+      existing.status === PlayerStatus.APPROVED &&
+      nextStatus === PlayerStatus.APPROVED &&
+      (parsed.data.number !== undefined ||
+        parsed.data.role !== undefined ||
+        (parsed.data.position !== undefined && parsed.data.position !== existing.position));
+
     await writeAuditLog(prisma, {
       actorId: auth.user.id,
-      action: "player.reviewed",
+      action: isRemoval
+        ? "player.squad.removed"
+        : isSquadDetailsUpdate
+          ? "player.squad.updated"
+          : "player.reviewed",
       resourceType: "player",
       resourceId: updated.id,
       cityId,
-      oldValue: { status: existing.status, position: existing.position },
+      oldValue: {
+        status: existing.status,
+        position: existing.position,
+        number: existing.number,
+        role: existing.role,
+      },
       newValue: {
         status: updated.status,
         position: updated.position,
+        number: updated.number,
+        role: updated.role,
         reviewNotes: updated.reviewNotes,
       },
     });
 
-    const targetRecipientEmail = existing.user?.email ?? existing.email;
-    if (nextStatus === PlayerStatus.APPROVED) {
+    if (isRemoval) {
+      await dispatchNotification(
+        prisma,
+        {
+          recipientUserId: existing.userId,
+          recipientEmail: targetRecipientEmail,
+          createdByUserId: auth.user.id,
+          type: "player.squad.removed",
+          title: "Removed from squad",
+          body: `You have been removed from the active squad for ${existing.team.name}.`,
+          resourceType: "player",
+          resourceId: updated.id,
+          email: Boolean(targetRecipientEmail),
+        },
+        getEmailTransport(),
+      );
+    } else if (isSquadDetailsUpdate) {
+      await dispatchNotification(
+        prisma,
+        {
+          recipientUserId: existing.userId,
+          recipientEmail: targetRecipientEmail,
+          createdByUserId: auth.user.id,
+          type: "player.squad.updated",
+          title: "Squad details updated",
+          body: `Your squad details were updated by your team manager for ${existing.team.name}.`,
+          resourceType: "player",
+          resourceId: updated.id,
+          email: false,
+        },
+        getEmailTransport(),
+      );
+    } else if (existing.status !== PlayerStatus.APPROVED && nextStatus === PlayerStatus.APPROVED) {
       await dispatchNotification(
         prisma,
         {
@@ -3276,7 +3364,7 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
           createdByUserId: auth.user.id,
           type: "player.reviewed",
           title: "Player registration updated",
-          body: `Your squad membership for ${existing.team.name} is ${parsed.data.status}.`,
+          body: `Your squad membership for ${existing.team.name} is ${parsed.data.status ?? "updated"}.`,
           resourceType: "player",
           resourceId: updated.id,
           email: Boolean(targetRecipientEmail),
@@ -3287,7 +3375,14 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
 
     return jsonResponse(
       200,
-      { ok: true, player: mapPlayerPayload(updated, { includeReviewNotes: true }) },
+      {
+        ok: true,
+        player: mapPlayerPayload(updated, {
+          includeReviewNotes: true,
+          includeOperational: true,
+          includeNegotiation: true,
+        }),
+      },
       authHeaders,
     );
   }

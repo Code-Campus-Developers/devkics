@@ -1,13 +1,38 @@
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Check, Clock, Lock, Mail, Trash2, X } from "lucide-react";
+import { Check, Clock, Eye, Lock, Mail, MoreHorizontal, Pencil, Trash2, X } from "lucide-react";
 
 import { LoadingSkeleton, SectionHeading, StatCard, TeamCrest } from "@/components/devkics/brand";
 import { MatchRow } from "@/components/devkics/match";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -34,8 +59,20 @@ export function ManagerDashboard() {
     invitePlayer,
     reviewPlayer,
     removePlayer,
+    updatePlayer,
     loadingTournamentOps,
   } = useDevKics();
+
+  const [selectedPlayerForDetails, setSelectedPlayerForDetails] = useState<Player | null>(null);
+  const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
+  const [editForm, setEditForm] = useState<{
+    position: Player["position"];
+    number: number | "";
+    role: string;
+  }>({ position: "MID", number: 1, role: "" });
+  const [playerToRemove, setPlayerToRemove] = useState<Player | null>(null);
+  const [isUpdatingPlayer, setIsUpdatingPlayer] = useState(false);
+  const [isRemovingPlayer, setIsRemovingPlayer] = useState(false);
   const team = teams.find(
     (t) => t.id === currentUser?.teamId || t.managerUserId === currentUser?.id,
   );
@@ -490,18 +527,52 @@ export function ManagerDashboard() {
                     <Badge variant="outline" className="rounded-full text-[10px] uppercase">
                       {p.position}
                     </Badge>
-                    {!isRosterLocked && (
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        disabled={actionInProgressId === p.id}
-                        aria-label={`Remove ${p.name}`}
-                        onClick={() => handleRemoveFromRoster(p.id, p.name)}
-                        className="text-muted-foreground hover:text-destructive"
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
-                    )}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          disabled={actionInProgressId === p.id}
+                          aria-label={`Actions for ${p.name}`}
+                          className="text-muted-foreground hover:text-foreground"
+                        >
+                          <MoreHorizontal className="size-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-48">
+                        <DropdownMenuItem
+                          onClick={() => setSelectedPlayerForDetails(p)}
+                          className="gap-2 cursor-pointer"
+                        >
+                          <Eye className="size-4" />
+                          <span>View Details</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={isRosterLocked}
+                          onClick={() => {
+                            setEditingPlayer(p);
+                            setEditForm({
+                              position: p.position,
+                              number: p.number || 1,
+                              role: p.role || "",
+                            });
+                          }}
+                          className="gap-2 cursor-pointer"
+                        >
+                          <Pencil className="size-4" />
+                          <span>Edit Player</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          disabled={isRosterLocked}
+                          onClick={() => setPlayerToRemove(p)}
+                          className="gap-2 cursor-pointer text-destructive focus:text-destructive"
+                        >
+                          <Trash2 className="size-4" />
+                          <span>Remove from Squad</span>
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </li>
                 ))}
               </ul>
@@ -659,6 +730,251 @@ export function ManagerDashboard() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* View Player Details Modal */}
+      <Dialog
+        open={Boolean(selectedPlayerForDetails)}
+        onOpenChange={(open) => !open && setSelectedPlayerForDetails(null)}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <span>{selectedPlayerForDetails?.name}</span>
+              {selectedPlayerForDetails?.number ? (
+                <Badge variant="secondary">#{selectedPlayerForDetails.number}</Badge>
+              ) : null}
+            </DialogTitle>
+            <DialogDescription>
+              Squad registration and verified operational information.
+            </DialogDescription>
+          </DialogHeader>
+          {selectedPlayerForDetails && (
+            <div className="space-y-4 py-2 text-sm">
+              <div className="grid grid-cols-2 gap-3 rounded-xl border border-border/60 bg-muted/30 p-3.5">
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground">Position</p>
+                  <p className="font-semibold text-foreground">
+                    {selectedPlayerForDetails.position}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground">Kit Number</p>
+                  <p className="font-semibold text-foreground">
+                    {selectedPlayerForDetails.number
+                      ? `#${selectedPlayerForDetails.number}`
+                      : "Not assigned"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground">Role</p>
+                  <p className="font-semibold text-foreground">
+                    {selectedPlayerForDetails.role || "Squad Member"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground">Status</p>
+                  <Badge variant="outline" className="text-xs capitalize">
+                    {selectedPlayerForDetails.status}
+                  </Badge>
+                </div>
+                {selectedPlayerForDetails.email && (
+                  <div className="col-span-2">
+                    <p className="text-xs font-medium text-muted-foreground">Email</p>
+                    <p className="font-semibold text-foreground">
+                      {selectedPlayerForDetails.email}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-2 rounded-xl border border-border/60 bg-muted/30 p-3.5">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Operational & Compliance
+                </p>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <p className="text-muted-foreground">Emergency Contact</p>
+                    <p className="font-medium text-foreground">
+                      {selectedPlayerForDetails.emergencyContactName || "Not provided"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Contact Phone</p>
+                    <p className="font-medium text-foreground">
+                      {selectedPlayerForDetails.emergencyContactPhone || "Not provided"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Waiver Signed</p>
+                    <p className="font-medium text-foreground">
+                      {selectedPlayerForDetails.waiverAcceptedAt
+                        ? new Date(selectedPlayerForDetails.waiverAcceptedAt).toLocaleDateString()
+                        : "Pending"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Media Consent</p>
+                    <p className="font-medium text-foreground">
+                      {selectedPlayerForDetails.mediaConsentAcceptedAt
+                        ? "Accepted"
+                        : "Not Provided"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSelectedPlayerForDetails(null)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Player Modal */}
+      <Dialog
+        open={Boolean(editingPlayer)}
+        onOpenChange={(open) => !open && setEditingPlayer(null)}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Player — {editingPlayer?.name}</DialogTitle>
+            <DialogDescription>
+              Update squad position, kit number, and role for this player.
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!editingPlayer) return;
+              const num = Number(editForm.number);
+              if (isNaN(num) || num < 1 || num > 99) {
+                toast.error("Kit number must be between 1 and 99");
+                return;
+              }
+              setIsUpdatingPlayer(true);
+              try {
+                await updatePlayer(editingPlayer.id, {
+                  position: editForm.position,
+                  number: num,
+                  role: editForm.role.trim() || null,
+                });
+                toast.success("Player details updated");
+                setEditingPlayer(null);
+              } catch (error) {
+                toast.error(error instanceof Error ? error.message : "Failed to update player");
+              } finally {
+                setIsUpdatingPlayer(false);
+              }
+            }}
+            className="space-y-4 py-2"
+          >
+            <div className="space-y-2">
+              <Label htmlFor="edit-position">Position</Label>
+              <Select
+                value={editForm.position}
+                onValueChange={(val) =>
+                  setEditForm((prev) => ({ ...prev, position: val as Player["position"] }))
+                }
+              >
+                <SelectTrigger id="edit-position">
+                  <SelectValue placeholder="Select position" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="GK">Goalkeeper (GK)</SelectItem>
+                  <SelectItem value="DEF">Defender (DEF)</SelectItem>
+                  <SelectItem value="MID">Midfielder (MID)</SelectItem>
+                  <SelectItem value="FWD">Forward (FWD)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-kit-number">Kit Number (1–99)</Label>
+              <Input
+                id="edit-kit-number"
+                type="number"
+                min={1}
+                max={99}
+                required
+                value={editForm.number}
+                onChange={(e) =>
+                  setEditForm((prev) => ({
+                    ...prev,
+                    number: e.target.value === "" ? "" : Number(e.target.value),
+                  }))
+                }
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-role">Squad Role (Optional)</Label>
+              <Input
+                id="edit-role"
+                placeholder="e.g. Captain, Vice Captain, Starter"
+                value={editForm.role}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, role: e.target.value }))}
+              />
+            </div>
+
+            <DialogFooter className="pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setEditingPlayer(null)}
+                disabled={isUpdatingPlayer}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isUpdatingPlayer}>
+                {isUpdatingPlayer ? "Saving..." : "Save Changes"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Remove Player Confirmation Alert Dialog */}
+      <AlertDialog
+        open={Boolean(playerToRemove)}
+        onOpenChange={(open) => !open && setPlayerToRemove(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove Player from Squad?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to remove{" "}
+              <strong className="text-foreground">{playerToRemove?.name}</strong> from{" "}
+              <strong className="text-foreground">{team?.name ?? "the squad"}</strong>? This will
+              withdraw them from active participation and notify the player.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isRemovingPlayer}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isRemovingPlayer}
+              onClick={async (e) => {
+                e.preventDefault();
+                if (!playerToRemove) return;
+                setIsRemovingPlayer(true);
+                try {
+                  await removePlayer(playerToRemove.id);
+                  toast.success(`${playerToRemove.name} removed from squad`);
+                  setPlayerToRemove(null);
+                } catch (error) {
+                  toast.error(error instanceof Error ? error.message : "Unable to remove player");
+                } finally {
+                  setIsRemovingPlayer(false);
+                }
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isRemovingPlayer ? "Removing..." : "Remove Player"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
