@@ -190,6 +190,8 @@ export interface Player {
   fullName?: string;
   email?: string | null;
   position: "GK" | "DEF" | "MID" | "FWD";
+  proposedPosition?: "GK" | "DEF" | "MID" | "FWD" | null;
+  positionNotes?: string | null;
   number: number;
   role: string;
   status:

@@ -534,7 +534,7 @@ export function ManagerDashboard() {
                     className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
                   >
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <span className="font-medium text-foreground">{p.name}</span>
                         <Badge
                           variant="outline"
@@ -542,21 +542,45 @@ export function ManagerDashboard() {
                         >
                           Pending Approval
                         </Badge>
+                        {p.proposedPosition && (
+                          <Badge
+                            variant="outline"
+                            className="border-amber-500/40 bg-amber-500/10 text-xs text-amber-600 dark:text-amber-400 font-medium"
+                          >
+                            Position Clarification: {p.proposedPosition}
+                          </Badge>
+                        )}
                       </div>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        Position: <strong className="text-foreground">{p.position}</strong>
+                        {p.proposedPosition ? (
+                          <>
+                            Proposed Position:{" "}
+                            <strong className="text-foreground">{p.proposedPosition}</strong>{" "}
+                            <span className="text-[11px]">(Invited as: {p.position})</span>
+                          </>
+                        ) : (
+                          <>
+                            Position: <strong className="text-foreground">{p.position}</strong>
+                          </>
+                        )}
                         {p.role ? ` · Role: ${p.role}` : ""}
                         {p.email ? ` · ${p.email}` : ""}
                       </p>
+                      {p.positionNotes && (
+                        <p className="mt-1.5 rounded-lg border border-border bg-muted/40 p-2 text-xs italic text-muted-foreground">
+                          &ldquo;{p.positionNotes}&rdquo;
+                        </p>
+                      )}
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <Button
                         size="sm"
                         disabled={isRosterLocked || actionInProgressId === p.id}
                         onClick={() => handleApprove(p.id, p.name)}
                         className="gap-1.5 rounded-full"
                       >
-                        <Check className="size-3.5" /> Approve
+                        <Check className="size-3.5" />
+                        {p.proposedPosition ? `Approve (${p.proposedPosition})` : "Approve"}
                       </Button>
                       <Button
                         size="sm"

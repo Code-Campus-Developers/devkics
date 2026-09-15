@@ -250,4 +250,107 @@ test.describe("Player ↔ Team Membership Frontend Flows", () => {
     ).toBeVisible();
     await expect(page.getByText("Join Request Pending")).toBeVisible();
   });
+
+  test("Manager invites player -> Player clarifies position -> Manager approves proposed position", async ({
+    page,
+    browser,
+  }) => {
+    const timestamp = (Date.now() + 2000).toString().slice(-6);
+    const {
+      email: managerEmail,
+      password: managerPassword,
+      team,
+    } = await createManagerWithTeam(timestamp);
+
+    const playerEmail = `player-clarify-${timestamp}@devkics.test`;
+
+    // 1. Manager logs in and sends invitation as MID
+    await page.goto("/auth");
+    await page.waitForLoadState("networkidle");
+
+    const signInPanel = page.getByRole("tabpanel", { name: "Sign in" });
+    await signInPanel.getByPlaceholder("you@company.com").fill(managerEmail);
+    await signInPanel.getByPlaceholder("••••••••").fill(managerPassword);
+    await signInPanel.getByRole("button", { name: "Sign in" }).click();
+
+    await page.waitForURL("**/dashboard");
+    await expect(page.getByText(`FC ${timestamp}`)).toBeVisible();
+
+    await page.getByPlaceholder("Chidi Nwankwo").fill(`Clarify Player ${timestamp}`);
+    await page.getByPlaceholder("chidi@company.com").fill(playerEmail);
+    await page.getByRole("button", { name: "Send team invitation" }).click();
+
+    await expect(page.getByText(`Invitation sent to ${playerEmail}`)).toBeVisible();
+
+    // 2. Player registers and reviews invite
+    const playerContext = await browser.newContext();
+    const playerPage = await playerContext.newPage();
+
+    await playerPage.goto("/auth");
+    await playerPage.waitForLoadState("networkidle");
+
+    await playerPage.getByRole("tab", { name: "Register" }).click();
+    const registerPanel = playerPage.getByRole("tabpanel", { name: "Register" });
+    await registerPanel.getByPlaceholder("Ada Lovelace").fill(`Clarify Player ${timestamp}`);
+    await registerPanel.getByPlaceholder("you@company.com").fill(playerEmail);
+    await registerPanel.getByPlaceholder("Choose a password").fill("devkics123");
+    await registerPanel.getByRole("button", { name: "Create account" }).click();
+
+    await playerPage.waitForURL("**/dashboard");
+
+    // Player sees team invitation and clicks "Clarify Position"
+    await expect(playerPage.getByText("Team Invitations")).toBeVisible();
+    await playerPage.getByRole("button", { name: "Clarify Position" }).click();
+
+    const clarifyDialog = playerPage.getByRole("dialog");
+    await expect(clarifyDialog.getByText("Clarify Position & Accept")).toBeVisible();
+
+    // Change position to FWD
+    await clarifyDialog.getByLabel("Preferred Playing Position *").click();
+    await playerPage.getByRole("option", { name: "Forward (FWD)" }).click();
+
+    // Add note
+    await clarifyDialog
+      .getByPlaceholder(/Prefer attacking midfield/i)
+      .fill("Prefer playing as central striker");
+
+    // Check waiver
+    await clarifyDialog.getByRole("checkbox").click();
+
+    // Submit clarification
+    await clarifyDialog.getByRole("button", { name: "Submit Clarification" }).click();
+    await expect(
+      playerPage.getByText(
+        /Position clarification submitted! Your proposed position is pending manager approval./i,
+      ),
+    ).toBeVisible();
+
+    // Player dashboard indicates proposed position is pending
+    await expect(playerPage.getByText("Clarification Pending")).toBeVisible();
+    await expect(playerPage.getByText(/Proposed:\s*FWD/i)).toBeVisible();
+
+    // 3. Manager approves proposed position
+    await page.reload();
+    await page.waitForLoadState("networkidle");
+
+    await page.getByRole("tab", { name: /Requests & Invites/ }).click();
+    await expect(page.getByText("Position Clarification: FWD")).toBeVisible();
+    await expect(page.getByText(/Prefer playing as central striker/)).toBeVisible();
+
+    await page.getByRole("button", { name: "Approve (FWD)" }).click();
+    await expect(page.getByText(/approved and added to active squad/i)).toBeVisible();
+
+    // Manager squad tab shows promoted position FWD
+    await page.getByRole("tab", { name: /Squad/ }).click();
+    await expect(page.getByText(`Clarify Player ${timestamp}`, { exact: true })).toBeVisible();
+
+    // 4. Player reloads and verifies approved squad membership on team page
+    await playerPage.goto(`/abuja/teams/${team.id}`);
+    await playerPage.waitForLoadState("networkidle");
+    await expect(
+      playerPage.getByText(`Clarify Player ${timestamp}`, { exact: true }),
+    ).toBeVisible();
+
+    await playerContext.close();
+  });
 });

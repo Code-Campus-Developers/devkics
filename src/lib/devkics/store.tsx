@@ -100,8 +100,10 @@ interface StoreValue {
   }) => Promise<Player>;
   respondToInvitation: (
     playerId: string,
-    action: "accept" | "decline",
+    action: "accept" | "decline" | "clarify",
     options?: {
+      preferredPosition?: Player["position"];
+      positionNotes?: string | null;
       waiverAccepted?: boolean;
       mediaConsentAccepted?: boolean;
       dateOfBirth?: string;
@@ -129,6 +131,7 @@ interface StoreValue {
     playerId: string,
     status: "approved" | "withdrawn" | "suspended" | "disqualified",
     reviewNotes?: string,
+    position?: Player["position"],
   ) => Promise<void>;
   addFixture: (input: {
     homeTeamId: string;
@@ -336,6 +339,8 @@ function normalizePlayer(raw: Partial<Player>): Player {
   if (raw.waiverAcceptedAt !== undefined) player.waiverAcceptedAt = raw.waiverAcceptedAt;
   if (raw.mediaConsentAcceptedAt !== undefined)
     player.mediaConsentAcceptedAt = raw.mediaConsentAcceptedAt;
+  if (raw.proposedPosition !== undefined) player.proposedPosition = raw.proposedPosition;
+  if (raw.positionNotes !== undefined) player.positionNotes = raw.positionNotes;
   return player;
 }
 
@@ -786,6 +791,8 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
           method: "POST",
           body: JSON.stringify({
             action,
+            preferredPosition: options?.preferredPosition,
+            positionNotes: options?.positionNotes,
             waiverAccepted: options?.waiverAccepted,
             mediaConsentAccepted: options?.mediaConsentAccepted,
             dateOfBirth: options?.dateOfBirth,
@@ -828,10 +835,10 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
   );
 
   const reviewPlayer = useCallback<StoreValue["reviewPlayer"]>(
-    async (playerId, status, reviewNotes) => {
+    async (playerId, status, reviewNotes, position) => {
       await api<{ player: Player }>(`/api/players/${encodeURIComponent(playerId)}`, {
         method: "PATCH",
-        body: JSON.stringify({ status, reviewNotes }),
+        body: JSON.stringify({ status, reviewNotes, position }),
       });
       await refreshDomain();
     },

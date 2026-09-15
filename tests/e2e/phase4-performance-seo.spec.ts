@@ -69,9 +69,7 @@ test.describe("Phase 4.4 — Performance, SEO & Caching", () => {
     await expect(
       page.getByText(/player identities and squad directories are private/i),
     ).toBeVisible();
-    await expect(
-      page.getByRole("link", { name: "Sign In", exact: true }),
-    ).toBeVisible();
+    await expect(page.getByRole("link", { name: "Sign In", exact: true })).toBeVisible();
 
     expect(consoleErrors).toEqual([]);
   });

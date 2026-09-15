@@ -364,6 +364,8 @@ model Player {
   fullName               String
   email                  String?
   position               String
+  proposedPosition       String?
+  positionNotes          String?
   number                 Int?
   role                   String?
   dateOfBirth            DateTime?

@@ -283,14 +283,21 @@ function mapPlayerPayload(
     fullName: string;
     email?: string | null;
     position: string;
+    proposedPosition?: string | null;
+    positionNotes?: string | null;
     number: number | null;
     role: string | null;
     status: PlayerStatus;
     reviewNotes: string | null;
     submittedAt: Date;
   },
-  options: { includeReviewNotes?: boolean; includeEmail?: boolean } = {},
+  options: {
+    includeReviewNotes?: boolean;
+    includeEmail?: boolean;
+    includeNegotiation?: boolean;
+  } = {},
 ) {
+  const showNegotiation = options.includeNegotiation !== false;
   return {
     id: player.id,
     teamId: player.teamId,
@@ -298,6 +305,8 @@ function mapPlayerPayload(
     fullName: player.fullName,
     email: options.includeEmail === false ? null : (player.email ?? null),
     position: player.position,
+    proposedPosition: showNegotiation ? (player.proposedPosition ?? null) : null,
+    positionNotes: showNegotiation ? (player.positionNotes ?? null) : null,
     number: player.number,
     role: player.role,
     status: mapPlayerStatus(player.status),
@@ -541,7 +550,9 @@ const playerCreateSchema = z.object({
 });
 
 const playerInvitationRespondSchema = z.object({
-  action: z.enum(["accept", "decline"]),
+  action: z.enum(["accept", "decline", "clarify"]),
+  preferredPosition: z.enum(["GK", "DEF", "MID", "FWD"]).optional(),
+  positionNotes: z.string().trim().max(500).optional(),
   waiverAccepted: z.boolean().optional(),
   mediaConsentAccepted: z.boolean().optional(),
   dateOfBirth: z.string().optional(),
@@ -572,6 +583,7 @@ const playerReviewSchema = z.object({
     "disqualified",
   ]),
   reviewNotes: z.string().max(2000).optional(),
+  position: z.enum(["GK", "DEF", "MID", "FWD"]).optional(),
 });
 
 const fixtureCreateSchema = z.object({
@@ -2433,6 +2445,8 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
           fullName: true,
           email: true,
           position: true,
+          proposedPosition: true,
+          positionNotes: true,
           number: true,
           role: true,
           status: true,
@@ -2462,6 +2476,7 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
           return mapPlayerPayload(player, {
             includeReviewNotes: canViewAllPlayerReviewNotes || isSelf,
             includeEmail: canViewSensitive,
+            includeNegotiation: canViewSensitive,
           });
         }),
         page,
@@ -2585,6 +2600,8 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         fullName: true,
         email: true,
         position: true,
+        proposedPosition: true,
+        positionNotes: true,
         number: true,
         role: true,
         status: true,
@@ -2700,7 +2717,20 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       return jsonResponse(400, { ok: false, error: "Invalid payload" }, authHeaders);
     }
 
-    if (parsed.data.action === "accept") {
+    if (parsed.data.action === "accept" || parsed.data.action === "clarify") {
+      const isClarification = parsed.data.action === "clarify";
+
+      if (isClarification && !parsed.data.preferredPosition) {
+        return jsonResponse(
+          400,
+          {
+            ok: false,
+            error: "Preferred position is required when requesting a position clarification",
+          },
+          authHeaders,
+        );
+      }
+
       if (!parsed.data.waiverAccepted && !player.waiverAcceptedAt) {
         return jsonResponse(
           400,
@@ -2753,6 +2783,12 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
           mediaConsentAcceptedAt: parsed.data.mediaConsentAccepted
             ? new Date()
             : player.mediaConsentAcceptedAt,
+          ...(isClarification
+            ? {
+                proposedPosition: parsed.data.preferredPosition!,
+                positionNotes: parsed.data.positionNotes?.trim() || null,
+              }
+            : {}),
           ...(parsed.data.dateOfBirth ? { dateOfBirth: new Date(parsed.data.dateOfBirth) } : {}),
           ...(parsed.data.emergencyContactName
             ? { emergencyContactName: parsed.data.emergencyContactName }
@@ -2771,6 +2807,8 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
           fullName: true,
           email: true,
           position: true,
+          proposedPosition: true,
+          positionNotes: true,
           number: true,
           role: true,
           status: true,
@@ -2781,11 +2819,20 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
 
       await writeAuditLog(prisma, {
         actorId: auth.user.id,
-        action: "player.invitation.accepted",
+        action: isClarification ? "player.invitation.clarified" : "player.invitation.accepted",
         resourceType: "player",
         resourceId: updated.id,
         cityId: player.team.tournament.cityId,
-        newValue: { status: updated.status, teamId: updated.teamId },
+        newValue: {
+          status: updated.status,
+          teamId: updated.teamId,
+          ...(isClarification
+            ? {
+                proposedPosition: updated.proposedPosition,
+                positionNotes: updated.positionNotes,
+              }
+            : {}),
+        },
       });
 
       if (player.team.managerUserId) {
@@ -2795,9 +2842,13 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
             recipientUserId: player.team.managerUserId,
             recipientEmail: null,
             createdByUserId: auth.user.id,
-            type: "team.invitation_accepted",
-            title: "Player accepted invitation",
-            body: `${auth.user.name} accepted the invitation to join ${player.team.name} and is pending roster confirmation.`,
+            type: isClarification ? "team.invitation_clarified" : "team.invitation_accepted",
+            title: isClarification
+              ? "Player proposed position change"
+              : "Player accepted invitation",
+            body: isClarification
+              ? `${auth.user.name} responded to the invitation for ${player.team.name} proposing position ${parsed.data.preferredPosition}${parsed.data.positionNotes ? `: "${parsed.data.positionNotes}"` : ""}. Review their squad spot.`
+              : `${auth.user.name} accepted the invitation to join ${player.team.name} and is pending roster confirmation.`,
             resourceType: "player",
             resourceId: updated.id,
             email: true,
@@ -3060,6 +3111,9 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         status: true,
         email: true,
         fullName: true,
+        position: true,
+        proposedPosition: true,
+        positionNotes: true,
         waiverAcceptedAt: true,
         user: { select: { id: true, email: true } },
         team: {
@@ -3120,10 +3174,20 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       );
     }
 
+    const nextPosition =
+      parsed.data.position ??
+      (nextStatus === PlayerStatus.APPROVED && existing.proposedPosition
+        ? existing.proposedPosition
+        : existing.position);
+
     const updated = await prisma.player.update({
       where: { id: existing.id },
       data: {
         status: nextStatus,
+        position: nextPosition,
+        ...(nextStatus === PlayerStatus.APPROVED || nextStatus === PlayerStatus.WITHDRAWN
+          ? { proposedPosition: null, positionNotes: null }
+          : {}),
         reviewNotes: parsed.data.reviewNotes ?? null,
         reviewerUserId: auth.user.id,
         reviewedAt: new Date(),
@@ -3135,6 +3199,8 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         fullName: true,
         email: true,
         position: true,
+        proposedPosition: true,
+        positionNotes: true,
         number: true,
         role: true,
         status: true,
@@ -3176,8 +3242,12 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       resourceType: "player",
       resourceId: updated.id,
       cityId,
-      oldValue: { status: existing.status },
-      newValue: { status: updated.status, reviewNotes: updated.reviewNotes },
+      oldValue: { status: existing.status, position: existing.position },
+      newValue: {
+        status: updated.status,
+        position: updated.position,
+        reviewNotes: updated.reviewNotes,
+      },
     });
 
     const targetRecipientEmail = existing.user?.email ?? existing.email;
@@ -3190,7 +3260,7 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
           createdByUserId: auth.user.id,
           type: "player.reviewed",
           title: "Player registration approved",
-          body: `Your squad membership for ${existing.team.name} has been approved.`,
+          body: `Your squad membership for ${existing.team.name} has been approved as ${updated.position}.`,
           resourceType: "player",
           resourceId: updated.id,
           email: Boolean(targetRecipientEmail),

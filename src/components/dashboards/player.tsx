@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { CheckCircle2, Clock, Mail, XCircle } from "lucide-react";
+import { CheckCircle2, Clock, HelpCircle, Mail, XCircle } from "lucide-react";
 import { toast } from "sonner";
 
 import { FormPill, SectionHeading, StatCard, TeamCrest } from "@/components/devkics/brand";
@@ -17,8 +17,17 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { useDevKics } from "@/lib/devkics/store";
 import { computeStandings } from "@/lib/devkics/standings";
+import type { Player } from "@/lib/devkics/types";
 
 export function PlayerDashboard() {
   const { currentUser, teams, players, fixtures, respondToInvitation } = useDevKics();
@@ -26,6 +35,9 @@ export function PlayerDashboard() {
   const [waiverAccepted, setWaiverAccepted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [decliningId, setDecliningId] = useState<string | null>(null);
+  const [inviteMode, setInviteMode] = useState<"accept" | "clarify">("accept");
+  const [preferredPosition, setPreferredPosition] = useState<Player["position"]>("MID");
+  const [positionNotes, setPositionNotes] = useState("");
 
   const invitations = players.filter((p) => {
     const matchesUser = p.userId === currentUser?.id;
@@ -59,15 +71,38 @@ export function PlayerDashboard() {
     }
   };
 
-  const handleAccept = async () => {
+  const openInviteModal = (inv: (typeof players)[0], mode: "accept" | "clarify") => {
+    setSelectedInvite(inv);
+    setInviteMode(mode);
+    setPreferredPosition(inv.position);
+    setPositionNotes("");
+    setWaiverAccepted(false);
+  };
+
+  const handleSubmitResponse = async () => {
     if (!selectedInvite) return;
     try {
       setIsSubmitting(true);
-      await respondToInvitation(selectedInvite.id, "accept", { waiverAccepted: true });
-      toast.success("Invitation accepted! Your spot is now pending team manager confirmation.");
+      if (inviteMode === "clarify") {
+        await respondToInvitation(selectedInvite.id, "clarify", {
+          preferredPosition,
+          positionNotes: positionNotes.trim() || null,
+          waiverAccepted: true,
+          mediaConsentAccepted: true,
+        });
+        toast.success(
+          "Position clarification submitted! Your proposed position is pending manager approval.",
+        );
+      } else {
+        await respondToInvitation(selectedInvite.id, "accept", {
+          waiverAccepted: true,
+          mediaConsentAccepted: true,
+        });
+        toast.success("Invitation accepted! Your spot is now pending team manager confirmation.");
+      }
       setSelectedInvite(null);
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Failed to accept invitation");
+      toast.error(err instanceof Error ? err.message : "Failed to respond to invitation");
     } finally {
       setIsSubmitting(false);
     }
@@ -106,7 +141,7 @@ export function PlayerDashboard() {
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center justify-end gap-2 border-t border-border pt-3">
+                  <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border pt-3">
                     <Button
                       size="sm"
                       variant="ghost"
@@ -119,11 +154,17 @@ export function PlayerDashboard() {
                     </Button>
                     <Button
                       size="sm"
+                      variant="outline"
                       className="rounded-full text-xs"
-                      onClick={() => {
-                        setSelectedInvite(inv);
-                        setWaiverAccepted(false);
-                      }}
+                      onClick={() => openInviteModal(inv, "clarify")}
+                    >
+                      <HelpCircle className="mr-1.5 size-3.5 text-amber-500" />
+                      Clarify Position
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="rounded-full text-xs"
+                      onClick={() => openInviteModal(inv, "accept")}
                     >
                       <CheckCircle2 className="mr-1.5 size-3.5" />
                       Review & Accept
@@ -148,23 +189,39 @@ export function PlayerDashboard() {
               return (
                 <div
                   key={req.id}
-                  className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-card p-4 shadow-sm"
+                  className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 shadow-sm"
                 >
-                  <div className="flex items-center gap-3">
-                    {reqTeam && <TeamCrest team={reqTeam} size="sm" />}
-                    <div>
-                      <h4 className="font-bold text-sm">{reqTeam?.name ?? "Team"}</h4>
-                      <p className="text-xs text-muted-foreground">
-                        {req.position} · Waiting for manager approval
-                      </p>
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      {reqTeam && <TeamCrest team={reqTeam} size="sm" />}
+                      <div>
+                        <h4 className="font-bold text-sm">{reqTeam?.name ?? "Team"}</h4>
+                        <p className="text-xs text-muted-foreground">
+                          {req.proposedPosition ? (
+                            <>
+                              Proposed:{" "}
+                              <strong className="text-foreground">{req.proposedPosition}</strong>{" "}
+                              <span className="text-[11px]">(Invited: {req.position})</span>
+                            </>
+                          ) : (
+                            <strong className="text-foreground">{req.position}</strong>
+                          )}
+                          {" · "}Waiting for manager approval
+                        </p>
+                      </div>
                     </div>
+                    <Badge
+                      variant="outline"
+                      className="rounded-full text-xs border-amber-500/40 text-amber-600 bg-amber-500/10 shrink-0"
+                    >
+                      {req.proposedPosition ? "Clarification Pending" : "Pending"}
+                    </Badge>
                   </div>
-                  <Badge
-                    variant="outline"
-                    className="rounded-full text-xs border-amber-500/40 text-amber-600 bg-amber-500/10"
-                  >
-                    Pending
-                  </Badge>
+                  {req.positionNotes && (
+                    <p className="rounded-lg border border-border bg-muted/40 p-2 text-xs italic text-muted-foreground">
+                      &ldquo;{req.positionNotes}&rdquo;
+                    </p>
+                  )}
                 </div>
               );
             })}
@@ -181,32 +238,108 @@ export function PlayerDashboard() {
     >
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Accept Team Invitation</DialogTitle>
+          <DialogTitle>
+            {inviteMode === "clarify" ? "Clarify Position & Accept" : "Accept Team Invitation"}
+          </DialogTitle>
           <DialogDescription>
-            Join {teams.find((t) => t.id === selectedInvite?.teamId)?.name ?? "the squad"}. Once
-            accepted, your roster spot will be submitted for final team manager confirmation.
+            {inviteMode === "clarify"
+              ? `Propose your preferred playing position for ${teams.find((t) => t.id === selectedInvite?.teamId)?.name ?? "the squad"}. The team manager will review and confirm your squad spot.`
+              : `Join ${teams.find((t) => t.id === selectedInvite?.teamId)?.name ?? "the squad"}. Once accepted, your roster spot will be submitted for final team manager confirmation.`}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-3">
-          <div className="rounded-xl border border-border bg-muted/40 p-3 text-xs space-y-1">
-            <p>
-              <span className="font-semibold">Position:</span>{" "}
-              {selectedInvite?.position ?? "Flexible"}
-            </p>
-            <p>
-              <span className="font-semibold">Kit Number:</span>{" "}
-              {selectedInvite?.number ? `#${selectedInvite.number}` : "Assigned by manager"}
-            </p>
+        <div className="space-y-4 py-2">
+          {/* Mode switch pills */}
+          <div className="flex rounded-xl bg-muted/60 p-1 border border-border/50 text-xs">
+            <button
+              type="button"
+              className={`flex-1 rounded-lg py-1.5 font-medium transition-colors ${
+                inviteMode === "accept"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+              onClick={() => setInviteMode("accept")}
+            >
+              Accept ({selectedInvite?.position ?? "Flexible"})
+            </button>
+            <button
+              type="button"
+              className={`flex-1 rounded-lg py-1.5 font-medium transition-colors ${
+                inviteMode === "clarify"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+              onClick={() => setInviteMode("clarify")}
+            >
+              Propose Position
+            </button>
           </div>
 
-          <div className="flex items-start space-x-3 pt-2">
+          {inviteMode === "accept" ? (
+            <div className="rounded-xl border border-border bg-muted/40 p-3 text-xs space-y-1">
+              <p>
+                <span className="font-semibold">Manager-Requested Position:</span>{" "}
+                {selectedInvite?.position ?? "Flexible"}
+              </p>
+              <p>
+                <span className="font-semibold">Kit Number:</span>{" "}
+                {selectedInvite?.number ? `#${selectedInvite.number}` : "Assigned by manager"}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3.5">
+              <div className="space-y-1.5">
+                <Label htmlFor="preferred-position" className="text-xs font-semibold">
+                  Preferred Playing Position *
+                </Label>
+                <Select
+                  value={preferredPosition}
+                  onValueChange={(val) => setPreferredPosition(val as Player["position"])}
+                >
+                  <SelectTrigger id="preferred-position" className="w-full bg-background text-xs">
+                    <SelectValue placeholder="Select position" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="GK">Goalkeeper (GK)</SelectItem>
+                    <SelectItem value="DEF">Defender (DEF)</SelectItem>
+                    <SelectItem value="MID">Midfielder (MID)</SelectItem>
+                    <SelectItem value="FWD">Forward (FWD)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground">
+                  Manager originally requested: <strong>{selectedInvite?.position}</strong>.
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="position-notes" className="text-xs font-semibold">
+                    Position Note (optional)
+                  </Label>
+                  <span className="text-[10px] text-muted-foreground">
+                    {positionNotes.length}/500
+                  </span>
+                </div>
+                <Textarea
+                  id="position-notes"
+                  rows={2}
+                  maxLength={500}
+                  value={positionNotes}
+                  onChange={(e) => setPositionNotes(e.target.value)}
+                  placeholder="e.g., Prefer attacking midfield or wing based on tactical fit"
+                  className="bg-background text-xs resize-none"
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-start space-x-3 pt-1">
             <Checkbox
               id="waiver-acceptance"
               checked={waiverAccepted}
               onCheckedChange={(checked) => setWaiverAccepted(Boolean(checked))}
             />
-            <div className="grid gap-1.5 leading-none">
+            <div className="grid gap-1 leading-none">
               <Label
                 htmlFor="waiver-acceptance"
                 className="text-xs font-normal leading-relaxed cursor-pointer"
@@ -218,9 +351,9 @@ export function PlayerDashboard() {
                   rel="noreferrer"
                   className="font-medium text-primary underline underline-offset-2"
                 >
-                  DevKics Participation Waiver and Release of Liability
+                  DevKics Participation Waiver, Media Consent, and Release of Liability
                 </a>
-                .
+                . *
               </Label>
             </div>
           </div>
@@ -235,8 +368,20 @@ export function PlayerDashboard() {
           >
             Cancel
           </Button>
-          <Button type="button" disabled={!waiverAccepted || isSubmitting} onClick={handleAccept}>
-            {isSubmitting ? "Accepting..." : "Accept & Submit"}
+          <Button
+            type="button"
+            disabled={
+              !waiverAccepted || (inviteMode === "clarify" && !preferredPosition) || isSubmitting
+            }
+            onClick={handleSubmitResponse}
+          >
+            {isSubmitting
+              ? inviteMode === "clarify"
+                ? "Submitting..."
+                : "Accepting..."
+              : inviteMode === "clarify"
+                ? "Submit Clarification"
+                : "Accept & Submit"}
           </Button>
         </DialogFooter>
       </DialogContent>

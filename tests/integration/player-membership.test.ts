@@ -1329,4 +1329,297 @@ describe("Player ↔ Team Membership Lifecycle", () => {
     expect(payload.players.every((p) => p.email !== null)).toBe(true); // Admin sees all emails
     expect(payload.players.every((p) => p.reviewNotes !== null)).toBe(true); // Admin sees all review notes
   });
+
+  describe("Phase 4: Player Position Clarification & Negotiation Lifecycle", () => {
+    it("consent enforcement: rejects accept or clarify without participation waiver", async () => {
+      const { team, otherCookies, otherUser } = await createTestFixtures();
+
+      const invite = await prisma.player.create({
+        data: {
+          teamId: team.id,
+          userId: otherUser.id,
+          fullName: otherUser.name,
+          email: otherUser.email,
+          position: "MID",
+          status: PlayerStatus.INVITED,
+        },
+      });
+
+      // 1. Trying to accept without waiver -> 400
+      const acceptNoWaiver = await handleApiRequest(
+        new Request(`http://localhost:8080/api/players/${invite.id}/invitation`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            cookie: toCookieHeader(otherCookies),
+          },
+          body: JSON.stringify({ action: "accept", waiverAccepted: false }),
+        }),
+      );
+      expect(acceptNoWaiver?.status).toBe(400);
+      const acceptErr = (await acceptNoWaiver?.json()) as { error: string };
+      expect(acceptErr.error).toContain("Participation waiver acceptance is required");
+
+      // 2. Trying to clarify without waiver -> 400
+      const clarifyNoWaiver = await handleApiRequest(
+        new Request(`http://localhost:8080/api/players/${invite.id}/invitation`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            cookie: toCookieHeader(otherCookies),
+          },
+          body: JSON.stringify({
+            action: "clarify",
+            preferredPosition: "FWD",
+            waiverAccepted: false,
+          }),
+        }),
+      );
+      expect(clarifyNoWaiver?.status).toBe(400);
+      const clarifyErr = (await clarifyNoWaiver?.json()) as { error: string };
+      expect(clarifyErr.error).toContain("Participation waiver acceptance is required");
+    });
+
+    it("clarify validation: rejects clarify action without preferredPosition", async () => {
+      const { team, otherCookies, otherUser } = await createTestFixtures();
+
+      const invite = await prisma.player.create({
+        data: {
+          teamId: team.id,
+          userId: otherUser.id,
+          fullName: otherUser.name,
+          email: otherUser.email,
+          position: "MID",
+          status: PlayerStatus.INVITED,
+        },
+      });
+
+      const clarifyNoPosition = await handleApiRequest(
+        new Request(`http://localhost:8080/api/players/${invite.id}/invitation`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            cookie: toCookieHeader(otherCookies),
+          },
+          body: JSON.stringify({
+            action: "clarify",
+            waiverAccepted: true,
+          }),
+        }),
+      );
+      expect(clarifyNoPosition?.status).toBe(400);
+      const err = (await clarifyNoPosition?.json()) as { error: string };
+      expect(err.error).toContain("Preferred position is required");
+    });
+
+    it("direct accept flow: transitions to PENDING_APPROVAL and maintains canonical position", async () => {
+      const { team, managerCookies, otherCookies, otherUser } = await createTestFixtures();
+
+      const invite = await prisma.player.create({
+        data: {
+          teamId: team.id,
+          userId: otherUser.id,
+          fullName: otherUser.name,
+          email: otherUser.email,
+          position: "DEF",
+          status: PlayerStatus.INVITED,
+        },
+      });
+
+      const res = await handleApiRequest(
+        new Request(`http://localhost:8080/api/players/${invite.id}/invitation`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            cookie: toCookieHeader(otherCookies),
+          },
+          body: JSON.stringify({
+            action: "accept",
+            waiverAccepted: true,
+          }),
+        }),
+      );
+      expect(res?.status).toBe(200);
+
+      const dbPlayer = await prisma.player.findUnique({ where: { id: invite.id } });
+      expect(dbPlayer?.status).toBe(PlayerStatus.PENDING_APPROVAL);
+      expect(dbPlayer?.position).toBe("DEF");
+      expect(dbPlayer?.proposedPosition).toBeNull();
+      expect(dbPlayer?.positionNotes).toBeNull();
+      expect(dbPlayer?.waiverAcceptedAt).not.toBeNull();
+
+      // Manager approves
+      const approveRes = await handleApiRequest(
+        new Request(`http://localhost:8080/api/players/${invite.id}`, {
+          method: "PATCH",
+          headers: {
+            "content-type": "application/json",
+            cookie: toCookieHeader(managerCookies),
+          },
+          body: JSON.stringify({ status: "approved" }),
+        }),
+      );
+      expect(approveRes?.status).toBe(200);
+
+      const approvedDb = await prisma.player.findUnique({ where: { id: invite.id } });
+      expect(approvedDb?.status).toBe(PlayerStatus.APPROVED);
+      expect(approvedDb?.position).toBe("DEF");
+      expect(approvedDb?.proposedPosition).toBeNull();
+      expect(approvedDb?.positionNotes).toBeNull();
+    });
+
+    it("clarify flow & approval: player proposes position, manager approves and promotes proposed position to canonical", async () => {
+      const { team, managerCookies, managerUser, otherCookies, otherUser } =
+        await createTestFixtures();
+
+      const invite = await prisma.player.create({
+        data: {
+          teamId: team.id,
+          userId: otherUser.id,
+          fullName: otherUser.name,
+          email: otherUser.email,
+          position: "MID",
+          status: PlayerStatus.INVITED,
+        },
+      });
+
+      // Player responds with clarify
+      const clarifyRes = await handleApiRequest(
+        new Request(`http://localhost:8080/api/players/${invite.id}/invitation`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            cookie: toCookieHeader(otherCookies),
+          },
+          body: JSON.stringify({
+            action: "clarify",
+            preferredPosition: "FWD",
+            positionNotes: "Prefer central striker or winger",
+            waiverAccepted: true,
+            mediaConsentAccepted: true,
+          }),
+        }),
+      );
+      expect(clarifyRes?.status).toBe(200);
+
+      // Verify DB state while pending approval:
+      // Canonical position stays original ("MID")
+      // proposedPosition is "FWD"
+      // positionNotes is saved
+      const pendingDb = await prisma.player.findUnique({ where: { id: invite.id } });
+      expect(pendingDb?.status).toBe(PlayerStatus.PENDING_APPROVAL);
+      expect(pendingDb?.position).toBe("MID"); // Original canonical position preserved
+      expect(pendingDb?.proposedPosition).toBe("FWD");
+      expect(pendingDb?.positionNotes).toBe("Prefer central striker or winger");
+      expect(pendingDb?.waiverAcceptedAt).not.toBeNull();
+      expect(pendingDb?.mediaConsentAcceptedAt).not.toBeNull();
+
+      // Verify manager received immediate notification
+      const managerNotification = await prisma.notification.findFirst({
+        where: {
+          recipientUserId: managerUser.id,
+          type: "team.invitation_clarified",
+        },
+      });
+      expect(managerNotification).not.toBeNull();
+      expect(managerNotification?.title).toContain("Player proposed position change");
+      expect(managerNotification?.body).toContain("FWD");
+
+      // Verify audit log
+      const clarifyAudit = await prisma.auditLog.findFirst({
+        where: {
+          resourceId: invite.id,
+          action: "player.invitation.clarified",
+        },
+      });
+      expect(clarifyAudit).not.toBeNull();
+
+      // Manager approves the player
+      const approveRes = await handleApiRequest(
+        new Request(`http://localhost:8080/api/players/${invite.id}`, {
+          method: "PATCH",
+          headers: {
+            "content-type": "application/json",
+            cookie: toCookieHeader(managerCookies),
+          },
+          body: JSON.stringify({ status: "approved" }),
+        }),
+      );
+      expect(approveRes?.status).toBe(200);
+
+      // Verify approved DB state:
+      // Position promoted to "FWD"
+      // proposedPosition and positionNotes cleared
+      const approvedDb = await prisma.player.findUnique({ where: { id: invite.id } });
+      expect(approvedDb?.status).toBe(PlayerStatus.APPROVED);
+      expect(approvedDb?.position).toBe("FWD"); // Promoted!
+      expect(approvedDb?.proposedPosition).toBeNull(); // Cleared!
+      expect(approvedDb?.positionNotes).toBeNull(); // Cleared!
+
+      // Verify player received review notification mentioning approved position
+      const playerNotification = await prisma.notification.findFirst({
+        where: {
+          recipientUserId: otherUser.id,
+          type: "player.reviewed",
+        },
+      });
+      expect(playerNotification?.body).toContain("approved as FWD");
+    });
+
+    it("clarify flow & rejection: manager rejects clarification, keeping reviewNotes separate and clearing negotiation fields", async () => {
+      const { team, managerCookies, otherCookies, otherUser } = await createTestFixtures();
+
+      const invite = await prisma.player.create({
+        data: {
+          teamId: team.id,
+          userId: otherUser.id,
+          fullName: otherUser.name,
+          email: otherUser.email,
+          position: "GK",
+          status: PlayerStatus.INVITED,
+        },
+      });
+
+      // Player clarifies
+      const clarifyRes = await handleApiRequest(
+        new Request(`http://localhost:8080/api/players/${invite.id}/invitation`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            cookie: toCookieHeader(otherCookies),
+          },
+          body: JSON.stringify({
+            action: "clarify",
+            preferredPosition: "DEF",
+            positionNotes: "Prefer center back",
+            waiverAccepted: true,
+          }),
+        }),
+      );
+      expect(clarifyRes?.status).toBe(200);
+
+      // Manager rejects with review comments
+      const rejectRes = await handleApiRequest(
+        new Request(`http://localhost:8080/api/players/${invite.id}`, {
+          method: "PATCH",
+          headers: {
+            "content-type": "application/json",
+            cookie: toCookieHeader(managerCookies),
+          },
+          body: JSON.stringify({
+            status: "withdrawn",
+            reviewNotes: "Only GK slot was open on this roster",
+          }),
+        }),
+      );
+      expect(rejectRes?.status).toBe(200);
+
+      const rejectedDb = await prisma.player.findUnique({ where: { id: invite.id } });
+      expect(rejectedDb?.status).toBe(PlayerStatus.WITHDRAWN);
+      expect(rejectedDb?.position).toBe("GK"); // Original canonical position unchanged
+      expect(rejectedDb?.proposedPosition).toBeNull(); // Cleared!
+      expect(rejectedDb?.positionNotes).toBeNull(); // Cleared!
+      expect(rejectedDb?.reviewNotes).toBe("Only GK slot was open on this roster"); // Review notes separate!
+    });
+  });
 });
