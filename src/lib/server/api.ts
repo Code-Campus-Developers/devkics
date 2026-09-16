@@ -188,6 +188,11 @@ function mapOrganizationPayload(organization: {
   reviewNotes: string | null;
   submittedAt: Date;
   reviewedAt: Date | null;
+  city?: {
+    id: string;
+    name: string;
+    slug: string;
+  } | null;
 }) {
   return {
     id: organization.id,
@@ -203,6 +208,13 @@ function mapOrganizationPayload(organization: {
     reviewNotes: organization.reviewNotes,
     submittedAt: organization.submittedAt.toISOString(),
     reviewedAt: organization.reviewedAt?.toISOString() ?? null,
+    city: organization.city
+      ? {
+          id: organization.city.id,
+          name: organization.city.name,
+          slug: organization.city.slug,
+        }
+      : null,
   };
 }
 
@@ -1748,6 +1760,13 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         reviewNotes: true,
         submittedAt: true,
         reviewedAt: true,
+        city: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+          },
+        },
       },
       orderBy: { submittedAt: "desc" as const },
       skip: (page - 1) * pageSize,
@@ -1859,6 +1878,13 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         reviewNotes: true,
         submittedAt: true,
         reviewedAt: true,
+        city: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+          },
+        },
       },
     });
 
@@ -1943,6 +1969,13 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         reviewNotes: true,
         submittedAt: true,
         reviewedAt: true,
+        city: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+          },
+        },
       },
     });
 

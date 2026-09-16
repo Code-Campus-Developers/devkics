@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { SectionHeading, StatCard } from "@/components/devkics/brand";
 import { ApplicationQueue } from "./applications";
 import { AnnouncementManager } from "./announcements";
+import { OrganizationReviewManager } from "./organizations";
 import { ReportsManager } from "./reports";
 import { SponsorshipManager } from "./sponsorships";
 import { StatusDot } from "@/routes/index";
@@ -248,6 +249,9 @@ export function AdminDashboard() {
           <TabsTrigger value="applications" className="rounded-full">
             City applications
           </TabsTrigger>
+          <TabsTrigger value="organizations" className="rounded-full">
+            Organizations
+          </TabsTrigger>
           <TabsTrigger value="sponsors" className="rounded-full">
             Sponsor enquiries
           </TabsTrigger>
@@ -423,6 +427,10 @@ export function AdminDashboard() {
 
         <TabsContent value="applications" className="mt-8">
           <ApplicationQueue kinds={["city-organizer"]} title="City organizer applications" />
+        </TabsContent>
+
+        <TabsContent value="organizations" className="mt-8">
+          <OrganizationReviewManager />
         </TabsContent>
 
         <TabsContent value="sponsors" className="mt-8 space-y-4">

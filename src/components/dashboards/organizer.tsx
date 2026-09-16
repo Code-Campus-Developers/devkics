@@ -56,6 +56,10 @@ export function OrganizerDashboard() {
   const pendingVolunteerApplications = volunteerApplications.filter(
     (application) => application.status === "submitted" || application.status === "under-review",
   );
+  const [reviewingOrg, setReviewingOrg] = useState<{
+    id: string;
+    action: "approved" | "rejected";
+  } | null>(null);
 
   if (loadingTournamentOps) {
     return (
@@ -220,9 +224,14 @@ export function OrganizerDashboard() {
                   <div className="mt-3 flex gap-2">
                     <Button
                       size="sm"
+                      loading={
+                        reviewingOrg?.id === organization.id && reviewingOrg?.action === "approved"
+                      }
+                      loadingText="Approving..."
+                      disabled={reviewingOrg !== null}
                       onClick={async () => {
+                        setReviewingOrg({ id: organization.id, action: "approved" });
                         try {
-                          await reviewOrganization(organization.id, "under-review");
                           await reviewOrganization(organization.id, "approved");
                           toast.success("Organization approved");
                         } catch (error) {
@@ -231,6 +240,8 @@ export function OrganizerDashboard() {
                               ? error.message
                               : "Unable to approve organization",
                           );
+                        } finally {
+                          setReviewingOrg(null);
                         }
                       }}
                     >
@@ -239,7 +250,13 @@ export function OrganizerDashboard() {
                     <Button
                       size="sm"
                       variant="outline"
+                      loading={
+                        reviewingOrg?.id === organization.id && reviewingOrg?.action === "rejected"
+                      }
+                      loadingText="Rejecting..."
+                      disabled={reviewingOrg !== null}
                       onClick={async () => {
+                        setReviewingOrg({ id: organization.id, action: "rejected" });
                         try {
                           await reviewOrganization(organization.id, "rejected");
                           toast.success("Organization rejected");
@@ -249,6 +266,8 @@ export function OrganizerDashboard() {
                               ? error.message
                               : "Unable to reject organization",
                           );
+                        } finally {
+                          setReviewingOrg(null);
                         }
                       }}
                     >

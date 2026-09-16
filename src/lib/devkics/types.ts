@@ -154,6 +154,11 @@ export interface Organization {
   reviewNotes?: string | null;
   submittedAt: string;
   reviewedAt?: string | null;
+  city?: {
+    id: string;
+    name: string;
+    slug: string;
+  } | null;
 }
 
 export interface Team {

@@ -420,13 +420,16 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
   const activeTournamentId = activeTournament?.id;
   const activeTournamentVenue = activeTournament?.venue ?? "Jabi Astro Turf";
 
+  const isAdmin = currentUser?.role === "admin";
   const organizationsQuery = useQuery({
-    queryKey: [...QUERY_KEYS.organizations, citySlug],
+    queryKey: isAdmin
+      ? [...QUERY_KEYS.organizations, "all"]
+      : [...QUERY_KEYS.organizations, citySlug],
     queryFn: async () => {
-      const payload = await api<{ organizations: Organization[] }>(
-        `/api/organizations?citySlug=${encodeURIComponent(citySlug)}&page=1&pageSize=50`,
-        { method: "GET" },
-      );
+      const endpoint = isAdmin
+        ? "/api/organizations?page=1&pageSize=100"
+        : `/api/organizations?citySlug=${encodeURIComponent(citySlug)}&page=1&pageSize=50`;
+      const payload = await api<{ organizations: Organization[] }>(endpoint, { method: "GET" });
       return payload.organizations;
     },
     staleTime: 30_000,
