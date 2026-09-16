@@ -254,6 +254,7 @@ function mapTeamPayload(
     status: TeamStatus;
     reviewNotes: string | null;
     managerUserId: string | null;
+    squadLockedAt?: Date | null;
     submittedAt: Date;
   },
   options: { includeReviewNotes?: boolean } = {},
@@ -271,6 +272,7 @@ function mapTeamPayload(
     status: mapTeamStatus(team.status),
     reviewNotes: options.includeReviewNotes ? team.reviewNotes : null,
     managerUserId: team.managerUserId,
+    squadLockedAt: team.squadLockedAt ? team.squadLockedAt.toISOString() : null,
     submittedAt: team.submittedAt.toISOString(),
   };
 }
@@ -2146,6 +2148,7 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
           status: true,
           reviewNotes: true,
           managerUserId: true,
+          squadLockedAt: true,
           submittedAt: true,
         },
         orderBy: { submittedAt: "desc" },
@@ -2240,6 +2243,7 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         status: true,
         reviewNotes: true,
         managerUserId: true,
+        squadLockedAt: true,
         submittedAt: true,
       },
     });
@@ -2325,6 +2329,7 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         status: true,
         reviewNotes: true,
         managerUserId: true,
+        squadLockedAt: true,
         submittedAt: true,
       },
     });

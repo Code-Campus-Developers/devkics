@@ -1982,6 +1982,179 @@ describe("Player ↔ Team Membership Lifecycle", () => {
       expect(
         (teammateViewOfPlayer as Record<string, unknown>)["medicalDeclaration"],
       ).toBeUndefined();
+
+      // 3. Player self queries players: medicalDeclaration must still be absent from player payload
+      const { otherCookies } = await createTestFixtures();
+      // Issue session for the actual player user (otherUser)
+      const selfAssignment = await prisma.roleAssignment.findFirst({
+        where: { userId: otherUser.id },
+      });
+      const selfSession = await issueSession(otherUser, selfAssignment ? [selfAssignment] : []);
+      const selfCookies = [selfSession.accessCookie, selfSession.refreshCookie];
+      const selfRes = await handleApiRequest(
+        new Request(`http://localhost:8080/api/players?teamId=${team.id}`, {
+          method: "GET",
+          headers: {
+            cookie: toCookieHeader(selfCookies),
+          },
+        }),
+      );
+      expect(selfRes?.status).toBe(200);
+      const selfData = await selfRes?.json();
+      const selfViewOfPlayer = selfData.players.find((p: { id: string }) => p.id === player.id);
+      expect(selfViewOfPlayer).toBeDefined();
+      expect((selfViewOfPlayer as Record<string, unknown>)["medicalDeclaration"]).toBeUndefined();
+
+      // 4. Admin queries players: medicalDeclaration must be absent from player payload
+      const adminUser = await prisma.user.create({
+        data: {
+          name: "Admin User",
+          email: `admin-med-${stamp}@devkics.test`,
+          passwordHash: await hashPassword("password123"),
+          citySlug: city.slug,
+        },
+      });
+      const adminAssignment = await prisma.roleAssignment.create({
+        data: {
+          userId: adminUser.id,
+          role: Role.ADMIN,
+          cityId: city.id,
+          countryCode: "NG",
+        },
+      });
+      const adminSession = await issueSession(adminUser, [adminAssignment]);
+      const adminCookies = [adminSession.accessCookie, adminSession.refreshCookie];
+      const adminRes = await handleApiRequest(
+        new Request(`http://localhost:8080/api/players?teamId=${team.id}`, {
+          method: "GET",
+          headers: {
+            cookie: toCookieHeader(adminCookies),
+          },
+        }),
+      );
+      expect(adminRes?.status).toBe(200);
+      const adminData = await adminRes?.json();
+      const adminViewOfPlayer = adminData.players.find((p: { id: string }) => p.id === player.id);
+      expect(adminViewOfPlayer).toBeDefined();
+      expect((adminViewOfPlayer as Record<string, unknown>)["medicalDeclaration"]).toBeUndefined();
+
+      // 5. POST /api/players response: medicalDeclaration must not be exposed
+      const createRes = await handleApiRequest(
+        new Request("http://localhost:8080/api/players", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            cookie: toCookieHeader(managerCookies),
+          },
+          body: JSON.stringify({
+            teamId: team.id,
+            fullName: "Invited With Medical",
+            email: `invited-med-${stamp}@devkics.test`,
+            position: "MID",
+            medicalDeclaration: "Asthma - inhaler required",
+            waiverAccepted: true,
+          }),
+        }),
+      );
+      expect(createRes?.status).toBe(201);
+      const createData = await createRes?.json();
+      expect((createData.player as Record<string, unknown>)["medicalDeclaration"]).toBeUndefined();
+
+      // 6. POST /api/players/:id/respond response: medicalDeclaration must not be exposed
+      const inviteeUser = await prisma.user.create({
+        data: {
+          name: "Invited With Medical",
+          email: `invited-med-${stamp}@devkics.test`,
+          passwordHash: await hashPassword("password123"),
+          citySlug: city.slug,
+        },
+      });
+      const inviteeAssignment = await prisma.roleAssignment.create({
+        data: {
+          userId: inviteeUser.id,
+          role: Role.PLAYER,
+          cityId: city.id,
+          countryCode: "NG",
+        },
+      });
+      const inviteeSession = await issueSession(inviteeUser, [inviteeAssignment]);
+      const inviteeCookies = [inviteeSession.accessCookie, inviteeSession.refreshCookie];
+
+      const respondRes = await handleApiRequest(
+        new Request(`http://localhost:8080/api/players/${createData.player.id}/respond`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            cookie: toCookieHeader(inviteeCookies),
+          },
+          body: JSON.stringify({
+            action: "clarify",
+            preferredPosition: "FWD",
+            positionNotes: "Prefer attack",
+            waiverAccepted: true,
+            medicalDeclaration: "Updated confidential medical notes",
+          }),
+        }),
+      );
+      expect(respondRes?.status).toBe(200);
+      const respondData = await respondRes?.json();
+      expect((respondData.player as Record<string, unknown>)["medicalDeclaration"]).toBeUndefined();
+
+      // 7. PATCH /api/players/:id response: medicalDeclaration must not be exposed
+      const patchRes = await handleApiRequest(
+        new Request(`http://localhost:8080/api/players/${player.id}`, {
+          method: "PATCH",
+          headers: {
+            "content-type": "application/json",
+            cookie: toCookieHeader(managerCookies),
+          },
+          body: JSON.stringify({
+            role: "Vice Captain",
+            number: 14,
+          }),
+        }),
+      );
+      expect(patchRes?.status).toBe(200);
+      const patchData = await patchRes?.json();
+      expect((patchData.player as Record<string, unknown>)["medicalDeclaration"]).toBeUndefined();
+
+      // 8. POST /api/teams/:id/join-requests response: medicalDeclaration must not be exposed
+      const joinerUser = await prisma.user.create({
+        data: {
+          name: "Joiner With Medical",
+          email: `joiner-med-${stamp}@devkics.test`,
+          passwordHash: await hashPassword("password123"),
+          citySlug: city.slug,
+        },
+      });
+      const joinerAssignment = await prisma.roleAssignment.create({
+        data: {
+          userId: joinerUser.id,
+          role: Role.PLAYER,
+          cityId: city.id,
+          countryCode: "NG",
+        },
+      });
+      const joinerSession = await issueSession(joinerUser, [joinerAssignment]);
+      const joinerCookies = [joinerSession.accessCookie, joinerSession.refreshCookie];
+
+      const joinRes = await handleApiRequest(
+        new Request(`http://localhost:8080/api/teams/${team.id}/join-requests`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            cookie: toCookieHeader(joinerCookies),
+          },
+          body: JSON.stringify({
+            position: "GK",
+            waiverAccepted: true,
+            medicalDeclaration: "Asthma history",
+          }),
+        }),
+      );
+      expect(joinRes?.status).toBe(201);
+      const joinData = await joinRes?.json();
+      expect((joinData.player as Record<string, unknown>)["medicalDeclaration"]).toBeUndefined();
     });
   });
 });

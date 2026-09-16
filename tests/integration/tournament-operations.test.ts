@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-import { Role } from "@prisma/client";
+import { Role, TournamentStatus } from "@prisma/client";
 
 import { handleApiRequest } from "@/lib/server/api";
 import { hashPassword } from "@/lib/server/auth";
@@ -599,5 +599,113 @@ describe("Phase 2 tournament operations", () => {
     };
     expect(adminTeamsPayload.ok).toBe(true);
     expect(Array.isArray(adminTeamsPayload.teams)).toBe(true);
+  });
+
+  it("exposes squadLockedAt across GET /api/teams and updates it when locking team", async () => {
+    const stamp = Date.now().toString().slice(-6);
+    const city = await prisma.city.findUniqueOrThrow({ where: { slug: "abuja" } });
+    const tournament = await prisma.tournament.create({
+      data: {
+        cityId: city.id,
+        name: `Lock Tourn ${stamp}`,
+        slug: `lock-tourn-${stamp}`,
+        status: TournamentStatus.REGISTRATION_OPEN,
+        season: "2026",
+        format: "Group + Knockout",
+        venue: "Jabi Turf",
+        summary: "Lock test tournament summary",
+        startDate: new Date(),
+        endDate: new Date(Date.now() + 86400000),
+      },
+    });
+    const organization = await prisma.organization.create({
+      data: {
+        cityId: city.id,
+        name: `Lock Org ${stamp}`,
+        slug: `lock-org-${stamp}`,
+        email: `lock-org-${stamp}@devkics.test`,
+        description: "Lock org description",
+        status: "APPROVED",
+      },
+    });
+    const admin = await prisma.user.create({
+      data: {
+        name: "Admin Lock",
+        email: `admin-lock-${stamp}@devkics.com`,
+        passwordHash: await hashPassword("devkics123"),
+        citySlug: "abuja",
+      },
+    });
+    await prisma.roleAssignment.create({
+      data: {
+        userId: admin.id,
+        role: Role.ADMIN,
+        cityId: city.id,
+        countryCode: "NG",
+      },
+    });
+    const targetTeam = await prisma.team.create({
+      data: {
+        tournamentId: tournament.id,
+        organizationId: organization.id,
+        name: `Lock FC ${stamp}`,
+        shortName: `LFC${stamp.slice(0, 3)}`,
+        company: "Lock Corp",
+        status: "APPROVED",
+      },
+    });
+
+    // 1. Check that GET /api/teams returns squadLockedAt for all teams (null or ISO string)
+    const listRes = await handleApiRequest(new Request("http://localhost:8080/api/teams"));
+    expect(listRes?.status).toBe(200);
+    const listPayload = (await listRes?.json()) as {
+      ok: boolean;
+      teams: Array<{ id: string; squadLockedAt?: string | null }>;
+    };
+    expect(listPayload.ok).toBe(true);
+    expect(listPayload.teams.length).toBeGreaterThan(0);
+    const createdTeamInList = listPayload.teams.find((t) => t.id === targetTeam.id);
+    expect(createdTeamInList).toBeDefined();
+    expect("squadLockedAt" in (createdTeamInList ?? {})).toBe(true);
+    expect(createdTeamInList?.squadLockedAt).toBeNull();
+
+    // 2. Lock a team via PATCH /api/teams/:id and verify squadLockedAt is set in the response
+    const adminLoginRes = await handleApiRequest(
+      new Request("http://localhost:8080/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: admin.email, password: "devkics123" }),
+      }),
+    );
+    const adminCookies = collectSetCookies(adminLoginRes as Response);
+
+    const lockRes = await handleApiRequest(
+      new Request(`http://localhost:8080/api/teams/${targetTeam.id}`, {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+          cookie: toCookieHeader(adminCookies),
+        },
+        body: JSON.stringify({ status: "locked" }),
+      }),
+    );
+    expect(lockRes?.status).toBe(200);
+    const lockPayload = (await lockRes?.json()) as {
+      ok: boolean;
+      team: { id: string; status: string; squadLockedAt: string | null };
+    };
+    expect(lockPayload.ok).toBe(true);
+    expect(lockPayload.team.status).toBe("locked");
+    expect(lockPayload.team.squadLockedAt).not.toBeNull();
+    expect(typeof lockPayload.team.squadLockedAt).toBe("string");
+
+    // 3. Verify GET /api/teams now returns the squadLockedAt ISO string for the locked team
+    const updatedListRes = await handleApiRequest(new Request("http://localhost:8080/api/teams"));
+    const updatedListPayload = (await updatedListRes?.json()) as {
+      ok: boolean;
+      teams: Array<{ id: string; squadLockedAt: string | null }>;
+    };
+    const lockedTeamInList = updatedListPayload.teams.find((t) => t.id === targetTeam.id);
+    expect(lockedTeamInList?.squadLockedAt).toBe(lockPayload.team.squadLockedAt);
   });
 });

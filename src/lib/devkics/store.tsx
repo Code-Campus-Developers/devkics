@@ -319,6 +319,7 @@ function normalizeTeam(raw: Partial<Team>): Team {
   if (raw.groupId !== undefined) team.groupId = raw.groupId;
   if (raw.status !== undefined) team.status = raw.status;
   if (raw.reviewNotes !== undefined) team.reviewNotes = raw.reviewNotes;
+  if (raw.squadLockedAt !== undefined) team.squadLockedAt = raw.squadLockedAt;
   return team;
 }
 
@@ -343,7 +344,6 @@ function normalizePlayer(raw: Partial<Player>): Player {
     player.emergencyContactName = raw.emergencyContactName;
   if (raw.emergencyContactPhone !== undefined)
     player.emergencyContactPhone = raw.emergencyContactPhone;
-  if (raw.medicalDeclaration !== undefined) player.medicalDeclaration = raw.medicalDeclaration;
   if (raw.waiverAcceptedAt !== undefined) player.waiverAcceptedAt = raw.waiverAcceptedAt;
   if (raw.mediaConsentAcceptedAt !== undefined)
     player.mediaConsentAcceptedAt = raw.mediaConsentAcceptedAt;

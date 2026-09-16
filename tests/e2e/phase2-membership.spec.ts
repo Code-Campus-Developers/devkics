@@ -77,7 +77,10 @@ async function createManagerWithTeam(suffix: string) {
       tournamentId: tournament.id,
       organizationId: org.id,
       name: `FC ${suffix}`,
-      shortName: `${suffix.replace(/[^a-zA-Z0-9]/g, "").slice(-3).toUpperCase()}${Math.floor(Math.random() * 10)}`,
+      shortName: `${suffix
+        .replace(/[^a-zA-Z0-9]/g, "")
+        .slice(-3)
+        .toUpperCase()}${Math.floor(Math.random() * 10)}`,
       company: org.name,
       managerUserId: managerUser.id,
       status: "APPROVED",
@@ -390,6 +393,7 @@ test.describe("Player ↔ Team Membership Frontend Flows", () => {
         waiverAcceptedAt: new Date(),
         emergencyContactName: "Emergency Person",
         emergencyContactPhone: "+2348099887766",
+        medicalDeclaration: "Confidential heart condition - uses beta blocker",
       },
     });
 
@@ -424,6 +428,11 @@ test.describe("Player ↔ Team Membership Frontend Flows", () => {
     ).toBeVisible();
     await expect(detailsDialog.getByText("Emergency Person")).toBeVisible();
     await expect(detailsDialog.getByText("+2348099887766")).toBeVisible();
+    // Medical declaration must strictly NOT be displayed in manager modal
+    await expect(
+      detailsDialog.getByText("Confidential heart condition - uses beta blocker"),
+    ).toHaveCount(0);
+    await expect(detailsDialog.getByText(/medical/i)).toHaveCount(0);
     await detailsDialog.getByRole("button", { name: "Close" }).first().click();
 
     // 3. Edit Player
@@ -469,5 +478,36 @@ test.describe("Player ↔ Team Membership Frontend Flows", () => {
 
     await expect(page.getByText(/removed from squad/i)).toBeVisible();
     await expect(page.getByText(`Roster Player ${timestamp}`, { exact: true })).not.toBeVisible();
+  });
+
+  test("Manager UI displays locked roster badge when squadLockedAt is set even with APPROVED status", async ({
+    page,
+  }) => {
+    const timestamp = Date.now().toString().slice(-6);
+    const { email, password, team } = await createManagerWithTeam(`lock-${timestamp}`);
+
+    // Set squadLockedAt while keeping status as APPROVED
+    await prisma.team.update({
+      where: { id: team.id },
+      data: {
+        status: "APPROVED",
+        squadLockedAt: new Date(),
+      },
+    });
+
+    // Manager logs in
+    await page.goto("/auth");
+    await page.waitForLoadState("networkidle");
+
+    const signInPanel = page.getByRole("tabpanel", { name: "Sign in" });
+    await signInPanel.getByPlaceholder("you@company.com").fill(email);
+    await signInPanel.getByPlaceholder("••••••••").fill(password);
+    await signInPanel.getByRole("button", { name: "Sign in" }).click();
+
+    await page.waitForURL("**/dashboard");
+
+    // Verify "Roster locked" badge and lock banner are visible
+    await expect(page.getByText(/Roster locked/i)).toBeVisible();
+    await expect(page.getByText(/Team roster is locked for competition/i)).toBeVisible();
   });
 });

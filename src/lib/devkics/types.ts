@@ -206,7 +206,6 @@ export interface Player {
   reviewNotes?: string | null;
   emergencyContactName?: string | null;
   emergencyContactPhone?: string | null;
-  medicalDeclaration?: string | null;
   waiverAcceptedAt?: string | null;
   mediaConsentAcceptedAt?: string | null;
   goals: number;
