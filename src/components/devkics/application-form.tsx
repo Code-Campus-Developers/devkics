@@ -31,6 +31,7 @@ export function ApplicationForm({
 }) {
   const { cities, submitApplication, submitVolunteerApplication } = useDevKics();
   const [done, setDone] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [agreementAccepted, setAgreementAccepted] = useState(true);
   const [form, setForm] = useState({
     name: "",
@@ -72,6 +73,7 @@ export function ApplicationForm({
           toast.error("You must accept the agreement and Code of Conduct before submitting.");
           return;
         }
+        setIsSubmitting(true);
         try {
           if (kind === "volunteer") {
             const citySlug = cities.find(
@@ -92,6 +94,8 @@ export function ApplicationForm({
           toast.success("Application submitted");
         } catch (error) {
           toast.error(error instanceof Error ? error.message : "Unable to submit application");
+        } finally {
+          setIsSubmitting(false);
         }
       }}
     >
@@ -207,7 +211,21 @@ export function ApplicationForm({
           )}
         </Label>
       </div>
-      <Button type="submit" size="lg" className="w-full rounded-full">
+      <Button
+        type="submit"
+        size="lg"
+        className="w-full rounded-full"
+        loading={isSubmitting}
+        loadingText="Submitting application..."
+        disabled={
+          isSubmitting ||
+          !agreementAccepted ||
+          !form.name.trim() ||
+          !form.email.trim() ||
+          !form.city.trim() ||
+          !form.detail.trim()
+        }
+      >
         {submitLabel}
       </Button>
     </form>

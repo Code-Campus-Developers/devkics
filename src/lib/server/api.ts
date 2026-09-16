@@ -1578,12 +1578,38 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
 
     const city = await prisma.city.findUnique({ where: { slug: parsed.data.city.toLowerCase() } });
 
+    const normalizedEmail = parsed.data.email.trim().toLowerCase();
+    const existingPending = await prisma.organizerApplication.findFirst({
+      where: {
+        email: { equals: normalizedEmail, mode: "insensitive" },
+        city: { equals: parsed.data.city.trim(), mode: "insensitive" },
+        status: {
+          in: [
+            OrganizerApplicationStatus.SUBMITTED,
+            OrganizerApplicationStatus.UNDER_REVIEW,
+            OrganizerApplicationStatus.MORE_INFO_REQUIRED,
+          ],
+        },
+      },
+      select: { id: true, status: true },
+    });
+    if (existingPending) {
+      return jsonResponse(
+        409,
+        {
+          ok: false,
+          error: "An organizer application for this email and city is already pending review",
+        },
+        authHeaders,
+      );
+    }
+
     const application = await prisma.organizerApplication.create({
       data: {
         applicantUserId: auth.user?.id ?? null,
         cityId: city?.id ?? null,
         name: parsed.data.name,
-        email: parsed.data.email,
+        email: normalizedEmail,
         city: parsed.data.city,
         country: parsed.data.country ?? null,
         detail: parsed.data.detail,
@@ -1774,6 +1800,38 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-|-$/g, "");
+
+    const existingBySlug = await prisma.organization.findUnique({
+      where: { cityId_slug: { cityId: city.id, slug } },
+      select: { id: true, name: true },
+    });
+    if (existingBySlug) {
+      return jsonResponse(
+        409,
+        { ok: false, error: "An organization with this name already exists in this city" },
+        authHeaders,
+      );
+    }
+
+    const pendingOrgForUser = await prisma.organization.findFirst({
+      where: {
+        ownerUserId: auth.user.id,
+        cityId: city.id,
+        status: { in: [OrganizationStatus.SUBMITTED, OrganizationStatus.UNDER_REVIEW] },
+      },
+      select: { id: true, name: true, status: true },
+    });
+    if (pendingOrgForUser) {
+      return jsonResponse(
+        409,
+        {
+          ok: false,
+          error: `You already have an organization (${pendingOrgForUser.name}) pending review in this city`,
+        },
+        authHeaders,
+      );
+    }
+
     const created = await prisma.organization.create({
       data: {
         cityId: city.id,

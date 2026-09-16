@@ -96,6 +96,8 @@ export function ManagerDashboard() {
     role: "",
   });
   const [isInviting, setIsInviting] = useState(false);
+  const [isSubmittingOrg, setIsSubmittingOrg] = useState(false);
+  const [isCreatingTeam, setIsCreatingTeam] = useState(false);
   const [actionInProgressId, setActionInProgressId] = useState<string | null>(null);
 
   if (loadingTournamentOps) {
@@ -119,6 +121,7 @@ export function ManagerDashboard() {
             className="mt-8 space-y-5 rounded-3xl border border-border bg-card p-7"
             onSubmit={async (e) => {
               e.preventDefault();
+              setIsSubmittingOrg(true);
               try {
                 await submitApplication({
                   kind: "team",
@@ -132,6 +135,8 @@ export function ManagerDashboard() {
                 toast.error(
                   error instanceof Error ? error.message : "Unable to submit organization",
                 );
+              } finally {
+                setIsSubmittingOrg(false);
               }
             }}
           >
@@ -167,7 +172,19 @@ export function ManagerDashboard() {
                 placeholder="HQ address, RC number or company website"
               />
             </div>
-            <Button type="submit" size="lg" className="w-full rounded-full">
+            <Button
+              type="submit"
+              size="lg"
+              className="w-full rounded-full"
+              loading={isSubmittingOrg}
+              loadingText="Submitting organization..."
+              disabled={
+                isSubmittingOrg ||
+                !organizationForm.name.trim() ||
+                !organizationForm.email.trim() ||
+                !organizationForm.detail.trim()
+              }
+            >
               Submit for review
             </Button>
           </form>
@@ -206,6 +223,7 @@ export function ManagerDashboard() {
           className="mt-8 space-y-5 rounded-3xl border border-border bg-card p-7"
           onSubmit={async (e) => {
             e.preventDefault();
+            setIsCreatingTeam(true);
             try {
               await createTeam({
                 name: newTeam.name,
@@ -217,6 +235,8 @@ export function ManagerDashboard() {
               toast.success("Team created successfully");
             } catch (error) {
               toast.error(error instanceof Error ? error.message : "Unable to create team");
+            } finally {
+              setIsCreatingTeam(false);
             }
           }}
         >
@@ -267,7 +287,14 @@ export function ManagerDashboard() {
               placeholder="Interswitch"
             />
           </div>
-          <Button type="submit" size="lg" className="w-full rounded-full">
+          <Button
+            type="submit"
+            size="lg"
+            className="w-full rounded-full"
+            loading={isCreatingTeam}
+            loadingText="Creating team..."
+            disabled={isCreatingTeam || !newTeam.name.trim() || !newTeam.company.trim()}
+          >
             Create team
           </Button>
         </form>
@@ -490,9 +517,15 @@ export function ManagerDashboard() {
                 </div>
 
                 <div className="pt-2">
-                  <Button type="submit" disabled={isInviting} className="gap-2 rounded-full px-6">
+                  <Button
+                    type="submit"
+                    disabled={isInviting || !inviteForm.name.trim() || !inviteForm.email.trim()}
+                    loading={isInviting}
+                    loadingText="Sending invite..."
+                    className="gap-2 rounded-full px-6"
+                  >
                     <Mail className="size-4" />
-                    {isInviting ? "Sending invite..." : "Send team invitation"}
+                    Send team invitation
                   </Button>
                 </div>
               </form>
@@ -927,8 +960,13 @@ export function ManagerDashboard() {
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={isUpdatingPlayer}>
-                {isUpdatingPlayer ? "Saving..." : "Save Changes"}
+              <Button
+                type="submit"
+                disabled={isUpdatingPlayer || editForm.number === ""}
+                loading={isUpdatingPlayer}
+                loadingText="Saving..."
+              >
+                Save Changes
               </Button>
             </DialogFooter>
           </form>

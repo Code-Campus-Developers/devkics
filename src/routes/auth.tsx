@@ -48,6 +48,8 @@ function AuthPage() {
     role: "player" as "player" | "manager",
   });
   const [showSignUpPassword, setShowSignUpPassword] = useState(false);
+  const [isSigningIn, setIsSigningIn] = useState(false);
+  const [isSigningUp, setIsSigningUp] = useState(false);
 
   useEffect(() => {
     if (bootstrapped && currentUser) navigate({ to: "/dashboard" });
@@ -104,6 +106,7 @@ function AuthPage() {
               className="space-y-5"
               onSubmit={async (e) => {
                 e.preventDefault();
+                setIsSigningIn(true);
                 try {
                   const user = await login(signIn.email, signIn.password, "standard");
                   if (!user) {
@@ -114,6 +117,8 @@ function AuthPage() {
                   navigate({ to: "/dashboard" });
                 } catch (error) {
                   toast.error(error instanceof Error ? error.message : "Sign in failed");
+                } finally {
+                  setIsSigningIn(false);
                 }
               }}
             >
@@ -156,7 +161,14 @@ function AuthPage() {
                   </button>
                 </div>
               </div>
-              <Button type="submit" size="lg" className="w-full rounded-full">
+              <Button
+                type="submit"
+                size="lg"
+                className="w-full rounded-full"
+                loading={isSigningIn}
+                loadingText="Signing in..."
+                disabled={isSigningIn || !signIn.email.trim() || !signIn.password.trim()}
+              >
                 Sign in
               </Button>
             </form>
@@ -173,6 +185,7 @@ function AuthPage() {
                   );
                   return;
                 }
+                setIsSigningUp(true);
                 try {
                   const user = await register({ ...signUp, acceptedTerms });
                   if (!user) {
@@ -183,6 +196,8 @@ function AuthPage() {
                   navigate({ to: "/dashboard" });
                 } catch (error) {
                   toast.error(error instanceof Error ? error.message : "Registration failed");
+                } finally {
+                  setIsSigningUp(false);
                 }
               }}
             >
@@ -312,7 +327,20 @@ function AuthPage() {
                   .
                 </Label>
               </div>
-              <Button type="submit" size="lg" className="w-full rounded-full">
+              <Button
+                type="submit"
+                size="lg"
+                className="w-full rounded-full"
+                loading={isSigningUp}
+                loadingText="Creating account..."
+                disabled={
+                  isSigningUp ||
+                  !acceptedTerms ||
+                  !signUp.name.trim() ||
+                  !signUp.email.trim() ||
+                  !signUp.password.trim()
+                }
+              >
                 Create account
               </Button>
             </form>
