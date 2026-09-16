@@ -1391,9 +1391,9 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
 
   // cities
   if (request.method === "GET" && url.pathname === "/api/cities") {
-    const includeAll = url.searchParams.get("includeAll") === "true";
     const userIsAdmin = auth.user ? isAdmin(auth.user, auth.assignments) : false;
-    const where = includeAll || userIsAdmin ? {} : { status: CityStatus.LIVE };
+    // Only authenticated admins receive all statuses; public/non-admin always see LIVE only.
+    const where = userIsAdmin ? {} : { status: CityStatus.LIVE };
 
     const cities = await prisma.city.findMany({ where, orderBy: { name: "asc" } });
     const headers = new Headers(authHeaders);

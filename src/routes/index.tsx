@@ -300,8 +300,10 @@ export function StatusDot({ status }: { status: string }) {
     live: { label: "Live", cls: "bg-primary/12 text-primary" },
     "applications-open": { label: "Applications open", cls: "bg-flare/20 text-flare-foreground" },
     "coming-soon": { label: "Coming soon", cls: "bg-muted text-muted-foreground" },
+    suspended: { label: "Suspended", cls: "bg-wine/12 text-wine" },
+    archived: { label: "Archived", cls: "bg-muted text-muted-foreground/60" },
   };
-  const item = map[status] ?? map["coming-soon"]!;
+  const item = map[status] ?? { label: status, cls: "bg-muted text-muted-foreground" };
   return (
     <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${item.cls}`}>
       {item.label}
