@@ -637,11 +637,6 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
     }
   }, [canViewOrganizerApplications, queryClient]);
 
-  const refreshSession = useCallback(async () => {
-    await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.auth });
-    await queryClient.refetchQueries({ queryKey: QUERY_KEYS.auth, exact: true });
-  }, [queryClient]);
-
   const refreshDomain = useCallback(async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.organizations }),
@@ -656,6 +651,17 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.galleries }),
     ]);
   }, [queryClient]);
+
+  const refreshSession = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.auth });
+    await queryClient.refetchQueries({ queryKey: QUERY_KEYS.auth, exact: true });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.cities }),
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.applications }),
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.tournaments }),
+      refreshDomain(),
+    ]);
+  }, [queryClient, refreshDomain]);
 
   const login = useCallback<StoreValue["login"]>(
     async (email, password, portal) => {
