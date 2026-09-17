@@ -1,8 +1,15 @@
-import { MatchEventType, MatchStage, MatchStatus, TournamentStatus } from "@prisma/client";
+import {
+  MatchEventType,
+  MatchStage,
+  MatchStatus,
+  OrganizationStatus,
+  TournamentStatus,
+} from "@prisma/client";
 import { describe, expect, it } from "vitest";
 
 import {
   aggregateMatchStatistics,
+  assertOrganizationTransition,
   assertTournamentTransition,
   computeStandingsProjection,
   generateRoundRobinFixtures,
@@ -98,6 +105,30 @@ describe("tournament-ops", () => {
     ).not.toThrow();
     expect(() =>
       assertTournamentTransition(TournamentStatus.DRAFT, TournamentStatus.COMPLETED),
+    ).toThrow();
+  });
+
+  it("enforces organization status transitions allowing direct review transitions", () => {
+    // Direct SUBMITTED transitions
+    expect(() =>
+      assertOrganizationTransition(OrganizationStatus.SUBMITTED, OrganizationStatus.APPROVED),
+    ).not.toThrow();
+    expect(() =>
+      assertOrganizationTransition(OrganizationStatus.SUBMITTED, OrganizationStatus.REJECTED),
+    ).not.toThrow();
+    expect(() =>
+      assertOrganizationTransition(
+        OrganizationStatus.SUBMITTED,
+        OrganizationStatus.MORE_INFO_REQUIRED,
+      ),
+    ).not.toThrow();
+    expect(() =>
+      assertOrganizationTransition(OrganizationStatus.SUBMITTED, OrganizationStatus.UNDER_REVIEW),
+    ).not.toThrow();
+
+    // Invalid transition
+    expect(() =>
+      assertOrganizationTransition(OrganizationStatus.APPROVED, OrganizationStatus.SUBMITTED),
     ).toThrow();
   });
 

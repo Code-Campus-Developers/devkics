@@ -161,7 +161,11 @@ interface StoreValue {
     city: string;
     detail: string;
   }) => Promise<void>;
-  reviewApplication: (id: string, status: "approved" | "rejected") => Promise<void>;
+  reviewApplication: (
+    id: string,
+    status: Application["status"],
+    reviewNotes?: string,
+  ) => Promise<void>;
   submitVolunteerApplication: (input: {
     citySlug: string;
     name: string;
@@ -392,7 +396,7 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
   const citySlug = currentUser?.citySlug ?? "abuja";
 
   const citiesQuery = useQuery({
-    queryKey: QUERY_KEYS.cities,
+    queryKey: [...QUERY_KEYS.cities, currentUser?.role === "admin" ? "admin" : "public"],
     queryFn: async () => {
       const payload = await api<{ cities: City[] }>("/api/cities", { method: "GET" });
       return payload.cities;
@@ -420,13 +424,16 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
   const activeTournamentId = activeTournament?.id;
   const activeTournamentVenue = activeTournament?.venue ?? "Jabi Astro Turf";
 
+  const isAdmin = currentUser?.role === "admin";
   const organizationsQuery = useQuery({
-    queryKey: [...QUERY_KEYS.organizations, citySlug],
+    queryKey: isAdmin
+      ? [...QUERY_KEYS.organizations, "all"]
+      : [...QUERY_KEYS.organizations, citySlug],
     queryFn: async () => {
-      const payload = await api<{ organizations: Organization[] }>(
-        `/api/organizations?citySlug=${encodeURIComponent(citySlug)}&page=1&pageSize=50`,
-        { method: "GET" },
-      );
+      const endpoint = isAdmin
+        ? "/api/organizations?page=1&pageSize=100"
+        : `/api/organizations?citySlug=${encodeURIComponent(citySlug)}&page=1&pageSize=50`;
+      const payload = await api<{ organizations: Organization[] }>(endpoint, { method: "GET" });
       return payload.organizations;
     },
     staleTime: 30_000,
@@ -630,11 +637,6 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
     }
   }, [canViewOrganizerApplications, queryClient]);
 
-  const refreshSession = useCallback(async () => {
-    await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.auth });
-    await queryClient.refetchQueries({ queryKey: QUERY_KEYS.auth, exact: true });
-  }, [queryClient]);
-
   const refreshDomain = useCallback(async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.organizations }),
@@ -650,6 +652,17 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
     ]);
   }, [queryClient]);
 
+  const refreshSession = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.auth });
+    await queryClient.refetchQueries({ queryKey: QUERY_KEYS.auth, exact: true });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.cities }),
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.applications }),
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.tournaments }),
+      refreshDomain(),
+    ]);
+  }, [queryClient, refreshDomain]);
+
   const login = useCallback<StoreValue["login"]>(
     async (email, password, portal) => {
       const payload = await api<{ user: unknown }>("/api/auth/login", {
@@ -660,6 +673,7 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
       queryClient.setQueryData(QUERY_KEYS.auth, user);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.cities }),
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.organizations }),
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.applications }),
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.sponsorshipEnquiries }),
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notifications }),
@@ -680,6 +694,7 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
       queryClient.setQueryData(QUERY_KEYS.auth, user);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.cities }),
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.organizations }),
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.applications }),
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.sponsorshipEnquiries }),
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notifications }),
@@ -942,10 +957,10 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
   );
 
   const reviewApplication = useCallback<StoreValue["reviewApplication"]>(
-    async (id, status) => {
+    async (id, status, reviewNotes) => {
       await api<{ application: Application }>(`/api/applications/${id}`, {
         method: "PATCH",
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status, reviewNotes }),
       });
       await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.applications });
     },

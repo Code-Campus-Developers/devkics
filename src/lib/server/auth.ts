@@ -93,7 +93,14 @@ function mapAssignments(assignments: RoleAssignment[]) {
   }));
 }
 
+const ROLE_PRIORITY: Role[] = [Role.ADMIN, Role.ORGANIZER, Role.MANAGER, Role.PLAYER];
+
 function pickActiveRole(assignments: RoleAssignment[]) {
+  for (const role of ROLE_PRIORITY) {
+    if (assignments.some((a) => a.role === role)) {
+      return normalizeRole(role);
+    }
+  }
   return normalizeRole(assignments[0]?.role ?? Role.PLAYER);
 }
 

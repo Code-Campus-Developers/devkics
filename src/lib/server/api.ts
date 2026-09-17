@@ -134,17 +134,39 @@ function mapApplicationPayload(application: {
   name: string;
   email: string;
   city: string;
+  country?: string | null;
   detail: string;
+  communityExperience?: string | null;
+  organizingExperience?: string | null;
+  proposedOrganizingTeam?: string | null;
+  expectedOrganizations?: string | null;
+  proposedVenue?: string | null;
+  proposedTournamentPeriod?: string | null;
+  motivation?: string | null;
+  reviewNotes?: string | null;
+  applicantUserId?: string | null;
+  cityId?: string | null;
   submittedAt: Date;
   status: OrganizerApplicationStatus;
 }) {
   return {
     id: application.id,
-    kind: "city-organizer",
+    kind: "city-organizer" as const,
     name: application.name,
     email: application.email,
     city: application.city,
+    country: application.country ?? null,
     detail: application.detail,
+    communityExperience: application.communityExperience ?? null,
+    organizingExperience: application.organizingExperience ?? null,
+    proposedOrganizingTeam: application.proposedOrganizingTeam ?? null,
+    expectedOrganizations: application.expectedOrganizations ?? null,
+    proposedVenue: application.proposedVenue ?? null,
+    proposedTournamentPeriod: application.proposedTournamentPeriod ?? null,
+    motivation: application.motivation ?? null,
+    reviewNotes: application.reviewNotes ?? null,
+    applicantUserId: application.applicantUserId ?? null,
+    cityId: application.cityId ?? null,
     submittedAt: application.submittedAt.toISOString().slice(0, 10),
     status: mapOrganizerStatus(application.status),
   };
@@ -188,6 +210,11 @@ function mapOrganizationPayload(organization: {
   reviewNotes: string | null;
   submittedAt: Date;
   reviewedAt: Date | null;
+  city?: {
+    id: string;
+    name: string;
+    slug: string;
+  } | null;
 }) {
   return {
     id: organization.id,
@@ -203,6 +230,13 @@ function mapOrganizationPayload(organization: {
     reviewNotes: organization.reviewNotes,
     submittedAt: organization.submittedAt.toISOString(),
     reviewedAt: organization.reviewedAt?.toISOString() ?? null,
+    city: organization.city
+      ? {
+          id: organization.city.id,
+          name: organization.city.name,
+          slug: organization.city.slug,
+        }
+      : null,
   };
 }
 
@@ -456,7 +490,7 @@ const reviewSchema = z.object({
 
 const paginationSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(1).max(50).default(20),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
 });
 
 const organizationCreateSchema = z.object({
@@ -1054,6 +1088,97 @@ async function claimMatchingPlayerInvitations(
   return current;
 }
 
+async function claimApprovedOrganizerApplications(
+  prismaClient: Pick<
+    typeof prisma,
+    "organizerApplication" | "roleAssignment" | "city" | "user" | "auditLog"
+  >,
+  user: User,
+  actorId?: string,
+): Promise<{ assignments: RoleAssignment[]; claimedCount: number }> {
+  const normalizedEmail = user.email.toLowerCase().trim();
+  const approvedApps = await prismaClient.organizerApplication.findMany({
+    where: {
+      email: { equals: normalizedEmail, mode: "insensitive" },
+      status: OrganizerApplicationStatus.APPROVED,
+    },
+  });
+
+  const claimedAssignments: RoleAssignment[] = [];
+
+  for (const app of approvedApps) {
+    const city = app.cityId
+      ? await prismaClient.city.findUnique({ where: { id: app.cityId } })
+      : await prismaClient.city.findFirst({
+          where: {
+            OR: [
+              { slug: app.city.toLowerCase() },
+              { name: { equals: app.city, mode: "insensitive" } },
+            ],
+          },
+        });
+    const cityId = city?.id ?? app.cityId ?? null;
+
+    if (app.applicantUserId !== user.id || app.cityId !== cityId) {
+      await prismaClient.organizerApplication.update({
+        where: { id: app.id },
+        data: {
+          applicantUserId: user.id,
+          cityId,
+        },
+      });
+    }
+
+    if (!user.citySlug && city) {
+      await prismaClient.user.update({
+        where: { id: user.id },
+        data: { citySlug: city.slug },
+      });
+      user.citySlug = city.slug;
+    }
+
+    if (cityId) {
+      let existingAssignment = await prismaClient.roleAssignment.findFirst({
+        where: {
+          userId: user.id,
+          role: Role.ORGANIZER,
+          cityId,
+        },
+      });
+
+      if (!existingAssignment) {
+        existingAssignment = await prismaClient.roleAssignment.create({
+          data: {
+            userId: user.id,
+            role: Role.ORGANIZER,
+            cityId,
+            countryCode: city?.countryCode ?? null,
+          },
+        });
+
+        await writeAuditLog(prismaClient, {
+          actorId: actorId ?? user.id,
+          action: "role-assignment.created",
+          resourceType: "role-assignment",
+          resourceId: existingAssignment.id,
+          cityId,
+          newValue: {
+            userId: user.id,
+            role: "ORGANIZER",
+            cityId,
+            applicationId: app.id,
+            claimedVia: "registration",
+          },
+        });
+      }
+
+      claimedAssignments.push(existingAssignment);
+    }
+  }
+
+  return { assignments: claimedAssignments, claimedCount: approvedApps.length };
+}
+
 export async function handleApiRequest(request: Request): Promise<Response | null> {
   const url = new URL(request.url);
 
@@ -1155,60 +1280,86 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
     }
 
     const email = parsed.data.email.toLowerCase();
-    const existing = await prisma.user.findUnique({ where: { email } });
-    if (existing) {
+
+    const registrationResult = await prisma.$transaction(async (tx) => {
+      const existing = await tx.user.findUnique({ where: { email } });
+      if (existing) {
+        return { conflict: true as const, user: null };
+      }
+
+      const approvedApps = await tx.organizerApplication.findMany({
+        where: {
+          email: { equals: email, mode: "insensitive" },
+          status: OrganizerApplicationStatus.APPROVED,
+        },
+      });
+
+      let targetCitySlug = parsed.data.citySlug;
+      if (!targetCitySlug && approvedApps[0]?.cityId) {
+        const appCity = await tx.city.findUnique({ where: { id: approvedApps[0].cityId } });
+        if (appCity) targetCitySlug = appCity.slug;
+      }
+
+      const city = targetCitySlug
+        ? await tx.city.findUnique({ where: { slug: targetCitySlug } })
+        : await tx.city.findUnique({ where: { slug: "abuja" } });
+
+      const user = await tx.user.create({
+        data: {
+          name: parsed.data.name,
+          email,
+          passwordHash: await hashPassword(parsed.data.password),
+          citySlug: city?.slug ?? null,
+        },
+      });
+
+      const initialAssignment = await tx.roleAssignment.create({
+        data: {
+          userId: user.id,
+          role: parsed.data.role.toUpperCase() as Role,
+          cityId: city?.id ?? null,
+          countryCode: city?.countryCode ?? null,
+        },
+      });
+
+      await writeAuditLog(tx, {
+        actorId: user.id,
+        action: "user.registered",
+        resourceType: "user",
+        resourceId: user.id,
+        cityId: city?.id ?? null,
+        newValue: {
+          role: initialAssignment.role,
+          citySlug: user.citySlug,
+          consent: {
+            termsOfUse: true,
+            privacyPolicy: true,
+            codeOfConduct: true,
+            acceptedAt: new Date().toISOString(),
+          },
+        },
+      });
+
+      await claimApprovedOrganizerApplications(tx, user);
+      return { conflict: false as const, user };
+    });
+
+    if (registrationResult.conflict || !registrationResult.user) {
       return jsonResponse(409, { ok: false, error: "Email already in use" }, authHeaders);
     }
 
-    const city = parsed.data.citySlug
-      ? await prisma.city.findUnique({ where: { slug: parsed.data.citySlug } })
-      : await prisma.city.findUnique({ where: { slug: "abuja" } });
-
-    const user = await prisma.user.create({
-      data: {
-        name: parsed.data.name,
-        email,
-        passwordHash: await hashPassword(parsed.data.password),
-        citySlug: city?.slug ?? null,
-      },
+    const registeredUser = await claimMatchingPlayerInvitations(prisma, registrationResult.user);
+    const allAssignments = await prisma.roleAssignment.findMany({
+      where: { userId: registeredUser.id },
     });
-
-    const assignment = await prisma.roleAssignment.create({
-      data: {
-        userId: user.id,
-        role: parsed.data.role.toUpperCase() as Role,
-        cityId: city?.id ?? null,
-        countryCode: city?.countryCode ?? null,
-      },
-    });
-
-    await writeAuditLog(prisma, {
-      actorId: user.id,
-      action: "user.registered",
-      resourceType: "user",
-      resourceId: user.id,
-      cityId: city?.id ?? null,
-      newValue: {
-        role: assignment.role,
-        citySlug: user.citySlug,
-        consent: {
-          termsOfUse: true,
-          privacyPolicy: true,
-          codeOfConduct: true,
-          acceptedAt: new Date().toISOString(),
-        },
-      },
-    });
-
-    const registeredUser = await claimMatchingPlayerInvitations(prisma, user);
-    const issued = await issueSession(registeredUser, [assignment]);
+    const issued = await issueSession(registeredUser, allAssignments);
     const headers = new Headers(authHeaders);
     headers.append("set-cookie", issued.accessCookie);
     headers.append("set-cookie", issued.refreshCookie);
 
     return jsonResponse(
       201,
-      { ok: true, user: toPublicUser(registeredUser, [assignment]) },
+      { ok: true, user: toPublicUser(registeredUser, allAssignments) },
       headers,
     );
   }
@@ -1272,6 +1423,7 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       return jsonResponse(401, { ok: false, error: "Invalid credentials" }, authHeaders);
     }
 
+    await claimApprovedOrganizerApplications(prisma, user);
     const assignments = await prisma.roleAssignment.findMany({ where: { userId: user.id } });
 
     if (parsed.data.portal === "admin") {
@@ -1391,13 +1543,18 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
 
   // cities
   if (request.method === "GET" && url.pathname === "/api/cities") {
-    const includeAll = url.searchParams.get("includeAll") === "true";
     const userIsAdmin = auth.user ? isAdmin(auth.user, auth.assignments) : false;
-    const where = includeAll || userIsAdmin ? {} : { status: CityStatus.LIVE };
+    // Only authenticated admins receive all statuses; public/non-admin always see LIVE only.
+    const where = userIsAdmin ? {} : { status: CityStatus.LIVE };
 
     const cities = await prisma.city.findMany({ where, orderBy: { name: "asc" } });
     const headers = new Headers(authHeaders);
-    headers.set("cache-control", "public, max-age=60, stale-while-revalidate=120");
+    headers.set("vary", "Cookie");
+    if (!userIsAdmin) {
+      headers.set("cache-control", "public, max-age=60, stale-while-revalidate=120");
+    } else {
+      headers.set("cache-control", "no-store, no-cache, must-revalidate, private");
+    }
     return jsonResponse(200, { ok: true, cities: cities.map(mapCityPayload) }, headers);
   }
 
@@ -1534,7 +1691,18 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         name: true,
         email: true,
         city: true,
+        country: true,
         detail: true,
+        communityExperience: true,
+        organizingExperience: true,
+        proposedOrganizingTeam: true,
+        expectedOrganizations: true,
+        proposedVenue: true,
+        proposedTournamentPeriod: true,
+        motivation: true,
+        reviewNotes: true,
+        applicantUserId: true,
+        cityId: true,
         submittedAt: true,
         status: true,
       },
@@ -1578,12 +1746,38 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
 
     const city = await prisma.city.findUnique({ where: { slug: parsed.data.city.toLowerCase() } });
 
+    const normalizedEmail = parsed.data.email.trim().toLowerCase();
+    const existingPending = await prisma.organizerApplication.findFirst({
+      where: {
+        email: { equals: normalizedEmail, mode: "insensitive" },
+        city: { equals: parsed.data.city.trim(), mode: "insensitive" },
+        status: {
+          in: [
+            OrganizerApplicationStatus.SUBMITTED,
+            OrganizerApplicationStatus.UNDER_REVIEW,
+            OrganizerApplicationStatus.MORE_INFO_REQUIRED,
+          ],
+        },
+      },
+      select: { id: true, status: true },
+    });
+    if (existingPending) {
+      return jsonResponse(
+        409,
+        {
+          ok: false,
+          error: "An organizer application for this email and city is already pending review",
+        },
+        authHeaders,
+      );
+    }
+
     const application = await prisma.organizerApplication.create({
       data: {
         applicantUserId: auth.user?.id ?? null,
         cityId: city?.id ?? null,
         name: parsed.data.name,
-        email: parsed.data.email,
+        email: normalizedEmail,
         city: parsed.data.city,
         country: parsed.data.country ?? null,
         detail: parsed.data.detail,
@@ -1641,30 +1835,132 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       return jsonResponse(400, { ok: false, error: "Invalid payload" }, authHeaders);
     }
 
-    const existing = await prisma.organizerApplication.findUnique({ where: { id: appId } });
-    if (!existing) {
+    const reviewResult = await prisma.$transaction(async (tx) => {
+      const existing = await tx.organizerApplication.findUnique({ where: { id: appId } });
+      if (!existing) return null;
+
+      const nextStatus = toOrganizerStatus(parsed.data.status);
+
+      // Resolve city
+      const city = existing.cityId
+        ? await tx.city.findUnique({ where: { id: existing.cityId } })
+        : await tx.city.findFirst({
+            where: {
+              OR: [
+                { slug: existing.city.toLowerCase() },
+                { name: { equals: existing.city, mode: "insensitive" } },
+              ],
+            },
+          });
+      const resolvedCityId = city?.id ?? existing.cityId ?? null;
+
+      let matchedUser: User | null = null;
+      if (nextStatus === OrganizerApplicationStatus.APPROVED) {
+        const normalizedEmail = existing.email.trim().toLowerCase();
+        matchedUser = existing.applicantUserId
+          ? await tx.user.findUnique({ where: { id: existing.applicantUserId } })
+          : await tx.user.findFirst({
+              where: { email: { equals: normalizedEmail, mode: "insensitive" } },
+            });
+
+        if (matchedUser) {
+          if (!matchedUser.citySlug && city) {
+            await tx.user.update({
+              where: { id: matchedUser.id },
+              data: { citySlug: city.slug },
+            });
+            matchedUser.citySlug = city.slug;
+          }
+
+          if (resolvedCityId) {
+            const existingRole = await tx.roleAssignment.findFirst({
+              where: {
+                userId: matchedUser.id,
+                role: Role.ORGANIZER,
+                cityId: resolvedCityId,
+              },
+            });
+
+            if (!existingRole) {
+              const newAssignment = await tx.roleAssignment.create({
+                data: {
+                  userId: matchedUser.id,
+                  role: Role.ORGANIZER,
+                  cityId: resolvedCityId,
+                  countryCode: city?.countryCode ?? null,
+                },
+              });
+
+              await writeAuditLog(tx, {
+                actorId: auth.user.id,
+                action: "role-assignment.created",
+                resourceType: "role-assignment",
+                resourceId: newAssignment.id,
+                cityId: resolvedCityId,
+                newValue: {
+                  userId: matchedUser.id,
+                  role: "ORGANIZER",
+                  cityId: resolvedCityId,
+                  applicationId: existing.id,
+                },
+              });
+            }
+          }
+        }
+      }
+
+      const updated = await tx.organizerApplication.update({
+        where: { id: appId },
+        data: {
+          status: nextStatus,
+          reviewNotes: parsed.data.reviewNotes ?? null,
+          reviewerUserId: auth.user.id,
+          reviewedAt: new Date(),
+          cityId: resolvedCityId,
+          ...(matchedUser ? { applicantUserId: matchedUser.id } : {}),
+        },
+      });
+
+      await writeAuditLog(tx, {
+        actorId: auth.user.id,
+        action: "organizer-application.reviewed",
+        resourceType: "organizer-application",
+        resourceId: updated.id,
+        cityId: updated.cityId,
+        oldValue: { status: existing.status },
+        newValue: { status: updated.status, reviewNotes: updated.reviewNotes },
+      });
+
+      return { updated, city, matchedUser };
+    });
+
+    if (!reviewResult) {
       return jsonResponse(404, { ok: false, error: "Application not found" }, authHeaders);
     }
 
-    const updated = await prisma.organizerApplication.update({
-      where: { id: appId },
-      data: {
-        status: toOrganizerStatus(parsed.data.status),
-        reviewNotes: parsed.data.reviewNotes ?? null,
-        reviewerUserId: auth.user.id,
-        reviewedAt: new Date(),
-      },
-    });
+    const { updated, city, matchedUser } = reviewResult;
 
-    await writeAuditLog(prisma, {
-      actorId: auth.user.id,
-      action: "organizer-application.reviewed",
-      resourceType: "organizer-application",
-      resourceId: updated.id,
-      cityId: updated.cityId,
-      oldValue: { status: existing.status },
-      newValue: { status: updated.status, reviewNotes: updated.reviewNotes },
-    });
+    if (updated.status === OrganizerApplicationStatus.APPROVED) {
+      try {
+        await dispatchNotification(
+          prisma,
+          {
+            recipientUserId: matchedUser?.id ?? updated.applicantUserId ?? null,
+            recipientEmail: updated.email,
+            createdByUserId: auth.user.id,
+            type: "organizer.application.approved",
+            title: "DevKics City Organizer Application Approved",
+            body: `Congratulations! Your application to organize DevKics in ${city?.name ?? updated.city} has been approved. You have been granted city organizer access. Sign in to your account to begin managing your chapter.`,
+            resourceType: "organizer-application",
+            resourceId: updated.id,
+            email: true,
+          },
+          getEmailTransport(),
+        );
+      } catch (err) {
+        console.error("Failed to dispatch organizer approval notification:", err);
+      }
+    }
 
     return jsonResponse(
       200,
@@ -1722,6 +2018,13 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         reviewNotes: true,
         submittedAt: true,
         reviewedAt: true,
+        city: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+          },
+        },
       },
       orderBy: { submittedAt: "desc" as const },
       skip: (page - 1) * pageSize,
@@ -1774,6 +2077,38 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-|-$/g, "");
+
+    const existingBySlug = await prisma.organization.findUnique({
+      where: { cityId_slug: { cityId: city.id, slug } },
+      select: { id: true, name: true },
+    });
+    if (existingBySlug) {
+      return jsonResponse(
+        409,
+        { ok: false, error: "An organization with this name already exists in this city" },
+        authHeaders,
+      );
+    }
+
+    const pendingOrgForUser = await prisma.organization.findFirst({
+      where: {
+        ownerUserId: auth.user.id,
+        cityId: city.id,
+        status: { in: [OrganizationStatus.SUBMITTED, OrganizationStatus.UNDER_REVIEW] },
+      },
+      select: { id: true, name: true, status: true },
+    });
+    if (pendingOrgForUser) {
+      return jsonResponse(
+        409,
+        {
+          ok: false,
+          error: `You already have an organization (${pendingOrgForUser.name}) pending review in this city`,
+        },
+        authHeaders,
+      );
+    }
+
     const created = await prisma.organization.create({
       data: {
         cityId: city.id,
@@ -1801,6 +2136,13 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         reviewNotes: true,
         submittedAt: true,
         reviewedAt: true,
+        city: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+          },
+        },
       },
     });
 
@@ -1885,6 +2227,13 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         reviewNotes: true,
         submittedAt: true,
         reviewedAt: true,
+        city: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+          },
+        },
       },
     });
 

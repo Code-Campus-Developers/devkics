@@ -6,10 +6,21 @@ import { toast } from "sonner";
 import { SectionHeading, StatCard } from "@/components/devkics/brand";
 import { ApplicationQueue } from "./applications";
 import { AnnouncementManager } from "./announcements";
+import { OrganizationReviewManager } from "./organizations";
 import { ReportsManager } from "./reports";
 import { SponsorshipManager } from "./sponsorships";
 import { StatusDot } from "@/routes/index";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Dialog,
   DialogContent,
@@ -24,6 +35,147 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useDevKics } from "@/lib/devkics/store";
 import type { City } from "@/lib/devkics/types";
 
+type CityStatus = City["status"];
+
+const STATUS_ACTIONS: {
+  status: CityStatus;
+  label: string;
+  confirmMessage: string;
+}[] = [
+  { status: "live", label: "Mark live", confirmMessage: "Set this city to Live?" },
+  {
+    status: "applications-open",
+    label: "Open applications",
+    confirmMessage: "Open organizer applications for this city?",
+  },
+  {
+    status: "coming-soon",
+    label: "Mark coming soon",
+    confirmMessage: "Set this city to Coming Soon?",
+  },
+  {
+    status: "suspended",
+    label: "Suspend",
+    confirmMessage: "Suspend this city? It will be hidden from public users but not deleted.",
+  },
+  {
+    status: "archived",
+    label: "Archive",
+    confirmMessage:
+      "Archive this city? All historical records are preserved. This cannot be undone easily.",
+  },
+];
+
+const ACTIVE_STATUSES: CityStatus[] = ["live", "applications-open", "coming-soon"];
+const INACTIVE_STATUSES: CityStatus[] = ["suspended", "archived"];
+
+interface CityCardProps {
+  city: City;
+  onStatusChange: (slug: string, status: CityStatus) => Promise<void>;
+}
+
+function CityCard({ city, onStatusChange }: CityCardProps) {
+  const [loadingStatus, setLoadingStatus] = useState<CityStatus | null>(null);
+  const [pendingAction, setPendingAction] = useState<{
+    status: CityStatus;
+    label: string;
+    confirmMessage: string;
+  } | null>(null);
+
+  const actions = STATUS_ACTIONS.filter((a) => a.status !== city.status);
+
+  async function executeStatusChange(status: CityStatus) {
+    setLoadingStatus(status);
+    try {
+      await onStatusChange(city.slug, status);
+      const label = STATUS_ACTIONS.find((a) => a.status === status)?.label ?? status;
+      toast.success(`${city.name}: ${label}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to update city");
+    } finally {
+      setLoadingStatus(null);
+    }
+  }
+
+  return (
+    <>
+      <div
+        key={city.slug}
+        id={`city-card-${city.slug}`}
+        className="rounded-2xl border border-border bg-card p-5"
+      >
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="font-display text-lg font-bold">{city.name}</h3>
+          <StatusDot status={city.status} />
+        </div>
+        <p className="mt-1 text-sm text-muted-foreground">{city.country}</p>
+        <p className="mt-3 text-sm text-muted-foreground">
+          {city.teams} teams · {city.players} players
+        </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {actions.map((action) => (
+            <Button
+              key={action.status}
+              size="sm"
+              variant={
+                action.status === "suspended" || action.status === "archived"
+                  ? "destructive"
+                  : "outline"
+              }
+              className="rounded-full"
+              id={`city-${city.slug}-action-${action.status}`}
+              loading={loadingStatus === action.status}
+              loadingText={action.label + "..."}
+              disabled={loadingStatus !== null}
+              onClick={() => setPendingAction(action)}
+            >
+              {action.label}
+            </Button>
+          ))}
+          {city.status === "live" && (
+            <Button asChild variant="outline" size="sm" className="rounded-full">
+              <Link to="/$city" params={{ city: city.slug }}>
+                Open portal
+              </Link>
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <AlertDialog
+        open={pendingAction !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingAction(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {pendingAction?.label} — {city.name}
+            </AlertDialogTitle>
+            <AlertDialogDescription>{pendingAction?.confirmMessage}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              id={`city-${city.slug}-confirm-${pendingAction?.status}`}
+              onClick={async () => {
+                if (pendingAction) {
+                  const status = pendingAction.status;
+                  setPendingAction(null);
+                  await executeStatusChange(status);
+                }
+              }}
+            >
+              Confirm
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
+
 export function AdminDashboard() {
   const {
     teams,
@@ -37,13 +189,16 @@ export function AdminDashboard() {
   } = useDevKics();
   const pending = applications.filter((a) => a.status === "pending");
 
+  const activeCities = cities.filter((c) => (ACTIVE_STATUSES as string[]).includes(c.status));
+  const inactiveCities = cities.filter((c) => (INACTIVE_STATUSES as string[]).includes(c.status));
+
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [cityName, setCityName] = useState("");
   const [cityCountry, setCityCountry] = useState("");
   const [cityCountryCode, setCityCountryCode] = useState("");
   const [citySlug, setCitySlug] = useState("");
   const [cityTagline, setCityTagline] = useState("");
-  const [cityStatus, setCityStatus] = useState<City["status"]>("applications-open");
+  const [cityStatus, setCityStatus] = useState<CityStatus>("applications-open");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   async function handleCreateCity(e: FormEvent) {
@@ -94,6 +249,9 @@ export function AdminDashboard() {
           <TabsTrigger value="applications" className="rounded-full">
             City applications
           </TabsTrigger>
+          <TabsTrigger value="organizations" className="rounded-full">
+            Organizations
+          </TabsTrigger>
           <TabsTrigger value="sponsors" className="rounded-full">
             Sponsor enquiries
           </TabsTrigger>
@@ -111,7 +269,7 @@ export function AdminDashboard() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="cities" className="mt-8 space-y-6">
+        <TabsContent value="cities" className="mt-8 space-y-8">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <SectionHeading title="City network" description="Every chapter across the platform." />
             <Button
@@ -124,62 +282,40 @@ export function AdminDashboard() {
             </Button>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {cities.map((c) => (
-              <div key={c.slug} className="rounded-2xl border border-border bg-card p-5">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-display text-lg font-bold">{c.name}</h3>
-                  <StatusDot status={c.status} />
-                </div>
-                <p className="mt-1 text-sm text-muted-foreground">{c.country}</p>
-                <p className="mt-3 text-sm text-muted-foreground">
-                  {c.teams} teams · {c.players} players
-                </p>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="rounded-full"
-                    onClick={async () => {
-                      try {
-                        await updateCityStatus(c.slug, "live");
-                        toast.success(`${c.name} set to live`);
-                      } catch (error) {
-                        toast.error(
-                          error instanceof Error ? error.message : "Unable to update city",
-                        );
-                      }
-                    }}
-                  >
-                    Mark live
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="rounded-full"
-                    onClick={async () => {
-                      try {
-                        await updateCityStatus(c.slug, "applications-open");
-                        toast.success(`${c.name} set to applications open`);
-                      } catch (error) {
-                        toast.error(
-                          error instanceof Error ? error.message : "Unable to update city",
-                        );
-                      }
-                    }}
-                  >
-                    Open applications
-                  </Button>
-                </div>
-                {c.status === "live" && (
-                  <Button asChild variant="outline" size="sm" className="mt-4 rounded-full">
-                    <Link to="/$city" params={{ city: c.slug }}>
-                      Open portal
-                    </Link>
-                  </Button>
-                )}
+          {/* Active Chapters */}
+          <div className="space-y-4">
+            <h2 className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">
+              Active chapters ({activeCities.length})
+            </h2>
+            {activeCities.length === 0 ? (
+              <p className="rounded-2xl border border-dashed border-border p-6 text-sm text-muted-foreground">
+                No active chapters.
+              </p>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {activeCities.map((c) => (
+                  <CityCard key={c.slug} city={c} onStatusChange={updateCityStatus} />
+                ))}
               </div>
-            ))}
+            )}
+          </div>
+
+          {/* Inactive & Archived Chapters */}
+          <div className="space-y-4">
+            <h2 className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">
+              Inactive &amp; archived ({inactiveCities.length})
+            </h2>
+            {inactiveCities.length === 0 ? (
+              <p className="rounded-2xl border border-dashed border-border p-6 text-sm text-muted-foreground">
+                No inactive or archived chapters.
+              </p>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {inactiveCities.map((c) => (
+                  <CityCard key={c.slug} city={c} onStatusChange={updateCityStatus} />
+                ))}
+              </div>
+            )}
           </div>
 
           <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
@@ -251,12 +387,13 @@ export function AdminDashboard() {
                     id="city-status"
                     className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                     value={cityStatus}
-                    onChange={(e) => setCityStatus(e.target.value as City["status"])}
+                    onChange={(e) => setCityStatus(e.target.value as CityStatus)}
                   >
                     <option value="applications-open">Applications Open</option>
-                    <option value="live">Live</option>
                     <option value="coming-soon">Coming Soon</option>
+                    <option value="live">Live</option>
                     <option value="suspended">Suspended</option>
+                    <option value="archived">Archived</option>
                   </select>
                 </div>
                 <DialogFooter>
@@ -268,8 +405,19 @@ export function AdminDashboard() {
                   >
                     Cancel
                   </Button>
-                  <Button type="submit" disabled={isSubmitting} id="admin-submit-create-city">
-                    {isSubmitting ? "Creating..." : "Create City"}
+                  <Button
+                    type="submit"
+                    loading={isSubmitting}
+                    loadingText="Creating..."
+                    disabled={
+                      isSubmitting ||
+                      !cityName.trim() ||
+                      !cityCountry.trim() ||
+                      !cityCountryCode.trim()
+                    }
+                    id="admin-submit-create-city"
+                  >
+                    Create City
                   </Button>
                 </DialogFooter>
               </form>
@@ -279,6 +427,10 @@ export function AdminDashboard() {
 
         <TabsContent value="applications" className="mt-8">
           <ApplicationQueue kinds={["city-organizer"]} title="City organizer applications" />
+        </TabsContent>
+
+        <TabsContent value="organizations" className="mt-8">
+          <OrganizationReviewManager />
         </TabsContent>
 
         <TabsContent value="sponsors" className="mt-8 space-y-4">

@@ -154,6 +154,11 @@ export interface Organization {
   reviewNotes?: string | null;
   submittedAt: string;
   reviewedAt?: string | null;
+  city?: {
+    id: string;
+    name: string;
+    slug: string;
+  } | null;
 }
 
 export interface Team {
@@ -317,11 +322,23 @@ export interface Application {
   name: string;
   email: string;
   city: string;
+  country?: string | null;
   detail: string;
+  communityExperience?: string | null;
+  organizingExperience?: string | null;
+  proposedOrganizingTeam?: string | null;
+  expectedOrganizations?: string | null;
+  proposedVenue?: string | null;
+  proposedTournamentPeriod?: string | null;
+  motivation?: string | null;
+  reviewNotes?: string | null;
+  applicantUserId?: string | null;
+  cityId?: string | null;
   submittedAt: string;
   status:
     | "draft"
     | "pending"
+    | "submitted"
     | "under-review"
     | "more-info-required"
     | "approved"
