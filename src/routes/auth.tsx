@@ -335,7 +335,6 @@ function AuthPage() {
                 loadingText="Creating account..."
                 disabled={
                   isSigningUp ||
-                  !acceptedTerms ||
                   !signUp.name.trim() ||
                   !signUp.email.trim() ||
                   !signUp.password.trim()

@@ -490,7 +490,7 @@ const reviewSchema = z.object({
 
 const paginationSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(1).max(50).default(20),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
 });
 
 const organizationCreateSchema = z.object({
@@ -1549,7 +1549,12 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
 
     const cities = await prisma.city.findMany({ where, orderBy: { name: "asc" } });
     const headers = new Headers(authHeaders);
-    headers.set("cache-control", "public, max-age=60, stale-while-revalidate=120");
+    headers.set("vary", "Cookie");
+    if (!userIsAdmin) {
+      headers.set("cache-control", "public, max-age=60, stale-while-revalidate=120");
+    } else {
+      headers.set("cache-control", "no-store, no-cache, must-revalidate, private");
+    }
     return jsonResponse(200, { ok: true, cities: cities.map(mapCityPayload) }, headers);
   }
 

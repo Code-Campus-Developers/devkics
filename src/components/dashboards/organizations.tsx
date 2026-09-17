@@ -122,8 +122,8 @@ export function OrganizationReviewManager() {
     }
   }
 
-  function getCityName(org: Organization) {
-    return org.city?.name ?? "City chapter";
+  function getCityName(org?: Organization | null) {
+    return org?.city?.name ?? "City chapter";
   }
 
   return (
@@ -354,7 +354,7 @@ export function OrganizationReviewManager() {
               {reviewDialog?.action === "more-info-required" && "Request More Information"}
             </DialogTitle>
             <DialogDescription>
-              {reviewDialog?.org.name} ({getCityName(reviewDialog?.org as Organization)})
+              {reviewDialog ? `${reviewDialog.org.name} (${getCityName(reviewDialog.org)})` : ""}
             </DialogDescription>
           </DialogHeader>
 

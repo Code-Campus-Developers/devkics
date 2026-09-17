@@ -396,7 +396,7 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
   const citySlug = currentUser?.citySlug ?? "abuja";
 
   const citiesQuery = useQuery({
-    queryKey: QUERY_KEYS.cities,
+    queryKey: [...QUERY_KEYS.cities, currentUser?.role === "admin" ? "admin" : "public"],
     queryFn: async () => {
       const payload = await api<{ cities: City[] }>("/api/cities", { method: "GET" });
       return payload.cities;
@@ -673,6 +673,7 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
       queryClient.setQueryData(QUERY_KEYS.auth, user);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.cities }),
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.organizations }),
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.applications }),
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.sponsorshipEnquiries }),
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notifications }),
@@ -693,6 +694,7 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
       queryClient.setQueryData(QUERY_KEYS.auth, user);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.cities }),
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.organizations }),
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.applications }),
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.sponsorshipEnquiries }),
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notifications }),
