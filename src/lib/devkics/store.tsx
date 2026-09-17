@@ -161,7 +161,11 @@ interface StoreValue {
     city: string;
     detail: string;
   }) => Promise<void>;
-  reviewApplication: (id: string, status: "approved" | "rejected") => Promise<void>;
+  reviewApplication: (
+    id: string,
+    status: Application["status"],
+    reviewNotes?: string,
+  ) => Promise<void>;
   submitVolunteerApplication: (input: {
     citySlug: string;
     name: string;
@@ -945,10 +949,10 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
   );
 
   const reviewApplication = useCallback<StoreValue["reviewApplication"]>(
-    async (id, status) => {
+    async (id, status, reviewNotes) => {
       await api<{ application: Application }>(`/api/applications/${id}`, {
         method: "PATCH",
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status, reviewNotes }),
       });
       await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.applications });
     },

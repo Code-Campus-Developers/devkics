@@ -134,17 +134,39 @@ function mapApplicationPayload(application: {
   name: string;
   email: string;
   city: string;
+  country?: string | null;
   detail: string;
+  communityExperience?: string | null;
+  organizingExperience?: string | null;
+  proposedOrganizingTeam?: string | null;
+  expectedOrganizations?: string | null;
+  proposedVenue?: string | null;
+  proposedTournamentPeriod?: string | null;
+  motivation?: string | null;
+  reviewNotes?: string | null;
+  applicantUserId?: string | null;
+  cityId?: string | null;
   submittedAt: Date;
   status: OrganizerApplicationStatus;
 }) {
   return {
     id: application.id,
-    kind: "city-organizer",
+    kind: "city-organizer" as const,
     name: application.name,
     email: application.email,
     city: application.city,
+    country: application.country ?? null,
     detail: application.detail,
+    communityExperience: application.communityExperience ?? null,
+    organizingExperience: application.organizingExperience ?? null,
+    proposedOrganizingTeam: application.proposedOrganizingTeam ?? null,
+    expectedOrganizations: application.expectedOrganizations ?? null,
+    proposedVenue: application.proposedVenue ?? null,
+    proposedTournamentPeriod: application.proposedTournamentPeriod ?? null,
+    motivation: application.motivation ?? null,
+    reviewNotes: application.reviewNotes ?? null,
+    applicantUserId: application.applicantUserId ?? null,
+    cityId: application.cityId ?? null,
     submittedAt: application.submittedAt.toISOString().slice(0, 10),
     status: mapOrganizerStatus(application.status),
   };
@@ -1546,7 +1568,18 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
         name: true,
         email: true,
         city: true,
+        country: true,
         detail: true,
+        communityExperience: true,
+        organizingExperience: true,
+        proposedOrganizingTeam: true,
+        expectedOrganizations: true,
+        proposedVenue: true,
+        proposedTournamentPeriod: true,
+        motivation: true,
+        reviewNotes: true,
+        applicantUserId: true,
+        cityId: true,
         submittedAt: true,
         status: true,
       },
