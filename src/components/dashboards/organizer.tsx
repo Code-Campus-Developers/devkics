@@ -37,6 +37,8 @@ export function OrganizerDashboard() {
     reviewPlayer,
     reviewVolunteerApplication,
     loadingTournamentOps,
+    createTournament,
+    updateTournamentStatus,
   } = useDevKics();
   const tournament = tournaments[0];
 
@@ -87,8 +89,11 @@ export function OrganizerDashboard() {
         <StatCard label="Pending reviews" value={pending.length} tone="wine" />
       </div>
 
-      <Tabs defaultValue="matches">
+      <Tabs defaultValue="tournament">
         <TabsList className="rounded-full" aria-label="Organizer management sections">
+          <TabsTrigger value="tournament" className="rounded-full">
+            Tournament
+          </TabsTrigger>
           <TabsTrigger value="matches" className="rounded-full">
             Fixtures & results
           </TabsTrigger>
@@ -111,6 +116,14 @@ export function OrganizerDashboard() {
             Gallery
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="tournament" className="mt-8">
+          <TournamentManager
+            tournament={tournament}
+            onCreate={createTournament}
+            onAdvanceStatus={updateTournamentStatus}
+          />
+        </TabsContent>
 
         <TabsContent value="matches" className="mt-8 space-y-10">
           <ScheduleForm />
@@ -410,6 +423,239 @@ export function OrganizerDashboard() {
         </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+type TournamentStatus = NonNullable<ReturnType<typeof useDevKics>["tournaments"][number]>["status"];
+
+const TOURNAMENT_STATUS_LABELS: Partial<Record<TournamentStatus, string>> = {
+  draft: "Draft",
+  "registration-open": "Registration open",
+  "registration-closed": "Registration closed",
+  "fixtures-published": "Fixtures published",
+  ongoing: "In progress",
+  completed: "Completed",
+  postponed: "Postponed",
+  cancelled: "Cancelled",
+  archived: "Archived",
+};
+
+const TOURNAMENT_NEXT_ACTIONS: Partial<Record<TournamentStatus, { label: string; next: string }>> =
+  {
+    draft: { label: "Open registration", next: "registration-open" },
+    "registration-open": { label: "Close registration", next: "registration-closed" },
+    "registration-closed": { label: "Publish fixtures", next: "fixtures-published" },
+    "fixtures-published": { label: "Start tournament", next: "ongoing" },
+    ongoing: { label: "Complete tournament", next: "completed" },
+  };
+
+function TournamentManager({
+  tournament,
+  onCreate,
+  onAdvanceStatus,
+}: {
+  tournament: ReturnType<typeof useDevKics>["tournaments"][number] | undefined;
+  onCreate: ReturnType<typeof useDevKics>["createTournament"];
+  onAdvanceStatus: ReturnType<typeof useDevKics>["updateTournamentStatus"];
+}) {
+  const [creating, setCreating] = useState(false);
+  const [advancing, setAdvancing] = useState(false);
+  const [form, setForm] = useState({
+    name: "",
+    season: new Date().getFullYear().toString(),
+    format: "Round Robin",
+    venue: "",
+    summary: "",
+    startDate: "",
+    endDate: "",
+  });
+
+  if (!tournament) {
+    return (
+      <section className="space-y-6">
+        <SectionHeading
+          title="Create tournament"
+          description="Set up your city's season before teams can register."
+        />
+        <form
+          className="rounded-3xl border border-border bg-card p-7 space-y-5"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            setCreating(true);
+            try {
+              await onCreate(form);
+              toast.success("Tournament created — status: Draft");
+            } catch (error) {
+              toast.error(error instanceof Error ? error.message : "Unable to create tournament");
+            } finally {
+              setCreating(false);
+            }
+          }}
+        >
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2 sm:col-span-2">
+              <Label>Tournament name</Label>
+              <Input
+                required
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                placeholder="DevKics Abuja 2026 — Season 1"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Season</Label>
+              <Input
+                required
+                value={form.season}
+                onChange={(e) => setForm({ ...form, season: e.target.value })}
+                placeholder="2026"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Format</Label>
+              <Select value={form.format} onValueChange={(v) => setForm({ ...form, format: v })}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Round Robin">Round Robin</SelectItem>
+                  <SelectItem value="Round Robin + Knockout">Round Robin + Knockout</SelectItem>
+                  <SelectItem value="Knockout">Knockout</SelectItem>
+                  <SelectItem value="League">League</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2 sm:col-span-2">
+              <Label>Venue</Label>
+              <Input
+                required
+                value={form.venue}
+                onChange={(e) => setForm({ ...form, venue: e.target.value })}
+                placeholder="Jabi Astro Turf, Abuja"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Start date</Label>
+              <Input
+                required
+                type="date"
+                value={form.startDate}
+                onChange={(e) => setForm({ ...form, startDate: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>End date</Label>
+              <Input
+                required
+                type="date"
+                value={form.endDate}
+                onChange={(e) => setForm({ ...form, endDate: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2 sm:col-span-2">
+              <Label>Summary</Label>
+              <Textarea
+                required
+                value={form.summary}
+                onChange={(e) => setForm({ ...form, summary: e.target.value })}
+                placeholder="Brief description of this season's competition."
+                className="min-h-20"
+              />
+            </div>
+          </div>
+          <Button
+            type="submit"
+            size="lg"
+            className="w-full rounded-full"
+            loading={creating}
+            loadingText="Creating tournament..."
+            disabled={
+              creating ||
+              !form.name.trim() ||
+              !form.venue.trim() ||
+              !form.startDate ||
+              !form.endDate ||
+              !form.summary.trim()
+            }
+          >
+            Create tournament
+          </Button>
+        </form>
+      </section>
+    );
+  }
+
+  const nextAction = TOURNAMENT_NEXT_ACTIONS[tournament.status];
+
+  return (
+    <section className="space-y-6">
+      <SectionHeading
+        title="Tournament management"
+        description="Advance the season through its lifecycle stages."
+      />
+      <div className="rounded-3xl border border-border bg-card p-7 space-y-6">
+        <div className="grid gap-2 sm:grid-cols-2">
+          <div>
+            <p className="text-xs text-muted-foreground">Tournament</p>
+            <p className="font-semibold">{tournament.name}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Season</p>
+            <p className="font-semibold">{tournament.season}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Format</p>
+            <p className="font-medium">{tournament.format}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Venue</p>
+            <p className="font-medium">{tournament.venue}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Dates</p>
+            <p className="font-medium">
+              {tournament.startDate} — {tournament.endDate}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Status</p>
+            <p className="font-semibold capitalize">
+              {TOURNAMENT_STATUS_LABELS[tournament.status] ?? tournament.status}
+            </p>
+          </div>
+        </div>
+
+        {nextAction ? (
+          <Button
+            className="rounded-full"
+            loading={advancing}
+            loadingText="Updating..."
+            disabled={advancing}
+            onClick={async () => {
+              setAdvancing(true);
+              try {
+                await onAdvanceStatus(tournament.id, nextAction.next as TournamentStatus);
+                toast.success(
+                  `Tournament status updated to: ${nextAction.next.replace(/-/g, " ")}`,
+                );
+              } catch (error) {
+                toast.error(
+                  error instanceof Error ? error.message : "Unable to advance tournament status",
+                );
+              } finally {
+                setAdvancing(false);
+              }
+            }}
+          >
+            {nextAction.label}
+          </Button>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            This tournament has reached its final state.
+          </p>
+        )}
+      </div>
+    </section>
   );
 }
 

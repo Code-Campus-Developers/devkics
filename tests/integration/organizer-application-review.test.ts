@@ -1,5 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
+import { NotificationChannel } from "@prisma/client";
 import { handleApiRequest } from "@/lib/server/api";
 import { hashPassword } from "@/lib/server/auth";
 import { prisma } from "@/lib/server/db";
@@ -361,5 +362,159 @@ describe("Phase 4 — Organizer Application Details Modal & Actions Menu", () =>
 
     const res = await handleApiRequest(patchReq);
     expect(res?.status).toBe(403);
+  });
+});
+
+describe("Organizer application notifications — REJECTED and MORE_INFO_REQUIRED", () => {
+  beforeAll(() => {
+    Object.assign(process.env, DEFAULT_ENV);
+  });
+
+  beforeEach(async () => {
+    await prisma.notification.deleteMany();
+    await prisma.auditLog.deleteMany();
+    await prisma.organizerApplication.deleteMany();
+    await prisma.roleAssignment.deleteMany();
+    await prisma.session.deleteMany();
+    await prisma.user.deleteMany();
+    await prisma.city.deleteMany();
+
+    await prisma.city.create({
+      data: {
+        slug: "abuja",
+        name: "Abuja",
+        country: "Nigeria",
+        countryCode: "NG",
+        status: "LIVE",
+        teams: 8,
+        players: 96,
+        tagline: "Federal capital chapter",
+        accentImage: "abuja",
+      },
+    });
+  });
+
+  async function seedAdminAndApplication(applicantEmail = "applicant@lead.test") {
+    const passwordHash = await hashPassword("AdminSecret123!");
+    const admin = await prisma.user.create({
+      data: { email: "admin@devkics.test", passwordHash, name: "Super Admin" },
+    });
+    await prisma.roleAssignment.create({ data: { userId: admin.id, role: "ADMIN" } });
+
+    const loginRes = await handleApiRequest(
+      new Request("http://localhost:8080/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: "admin@devkics.test", password: "AdminSecret123!" }),
+      }),
+    );
+    const adminCookies = collectSetCookies(loginRes!);
+
+    const submitRes = await handleApiRequest(
+      new Request("http://localhost:8080/api/applications", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          kind: "city-organizer",
+          name: "Test Applicant",
+          email: applicantEmail,
+          city: "Abuja",
+          detail: "Community lead applying to organize DevKics Abuja.",
+          agreementAccepted: true,
+        }),
+      }),
+    );
+    expect(submitRes?.status).toBe(201);
+    const { application } = (await submitRes?.json()) as { application: { id: string } };
+
+    return { admin, adminCookies, applicationId: application.id, applicantEmail };
+  }
+
+  it("dispatches a notification when application is REJECTED", async () => {
+    const { adminCookies, applicationId, applicantEmail } = await seedAdminAndApplication();
+
+    const res = await handleApiRequest(
+      new Request(`http://localhost:8080/api/applications/${applicationId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json", cookie: toCookieHeader(adminCookies) },
+        body: JSON.stringify({ status: "rejected" }),
+      }),
+    );
+    expect(res?.status).toBe(200);
+
+    const notification = await prisma.notification.findFirst({
+      where: { type: "organizer.application.rejected", channel: NotificationChannel.EMAIL },
+    });
+    expect(notification).not.toBeNull();
+    expect(notification?.recipientEmail).toBe(applicantEmail);
+    expect(notification?.title).toBe("DevKics City Organizer Application — Decision");
+    expect(notification?.body).toContain("Abuja");
+  });
+
+  it("dispatches a notification when application requires MORE_INFO", async () => {
+    const { adminCookies, applicationId, applicantEmail } =
+      await seedAdminAndApplication("moreinfoapp@lead.test");
+
+    const res = await handleApiRequest(
+      new Request(`http://localhost:8080/api/applications/${applicationId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json", cookie: toCookieHeader(adminCookies) },
+        body: JSON.stringify({ status: "more-info-required" }),
+      }),
+    );
+    expect(res?.status).toBe(200);
+
+    const notification = await prisma.notification.findFirst({
+      where: {
+        type: "organizer.application.more-info-required",
+        channel: NotificationChannel.EMAIL,
+      },
+    });
+    expect(notification).not.toBeNull();
+    expect(notification?.recipientEmail).toBe("moreinfoapp@lead.test");
+    expect(notification?.title).toContain("Additional Information Needed");
+    expect(notification?.body).toContain("Abuja");
+  });
+
+  it("includes reviewNotes in MORE_INFO body when provided", async () => {
+    const { adminCookies, applicationId } = await seedAdminAndApplication("notes@lead.test");
+
+    const reviewNotes = "Please provide your community event history and references.";
+    const res = await handleApiRequest(
+      new Request(`http://localhost:8080/api/applications/${applicationId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json", cookie: toCookieHeader(adminCookies) },
+        body: JSON.stringify({ status: "more-info-required", reviewNotes }),
+      }),
+    );
+    expect(res?.status).toBe(200);
+
+    const notification = await prisma.notification.findFirst({
+      where: { type: "organizer.application.more-info-required" },
+    });
+    expect(notification?.body).toContain(reviewNotes);
+  });
+
+  it("does not expose internal IDs or raw enum strings in notification body", async () => {
+    const { adminCookies, applicationId } = await seedAdminAndApplication("sectest@lead.test");
+
+    await handleApiRequest(
+      new Request(`http://localhost:8080/api/applications/${applicationId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json", cookie: toCookieHeader(adminCookies) },
+        body: JSON.stringify({
+          status: "rejected",
+          reviewNotes: "Does not meet current criteria.",
+        }),
+      }),
+    );
+
+    const notification = await prisma.notification.findFirst({
+      where: { type: "organizer.application.rejected" },
+    });
+    expect(notification?.body).not.toContain(applicationId);
+    // Raw Prisma enum value should not appear in user-facing text
+    expect(notification?.body).not.toContain("REJECTED");
+    expect(notification?.body).not.toContain("MORE_INFO_REQUIRED");
   });
 });

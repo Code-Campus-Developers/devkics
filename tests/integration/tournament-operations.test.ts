@@ -709,3 +709,185 @@ describe("Phase 2 tournament operations", () => {
     expect(lockedTeamInList?.squadLockedAt).toBe(lockPayload.team.squadLockedAt);
   });
 });
+
+describe("Organizer-scoped tournament create and status lifecycle", () => {
+  beforeAll(() => {
+    Object.assign(process.env, DEFAULT_ENV);
+  });
+
+  beforeEach(async () => {
+    await prisma.notification.deleteMany();
+    await prisma.auditLog.deleteMany();
+    await prisma.organizerApplication.deleteMany();
+    await prisma.roleAssignment.deleteMany();
+    await prisma.session.deleteMany();
+    await prisma.user.deleteMany();
+    await prisma.tournament.deleteMany();
+    await prisma.city.deleteMany();
+
+    await prisma.city.createMany({
+      data: [
+        {
+          slug: "abuja",
+          name: "Abuja",
+          country: "Nigeria",
+          countryCode: "NG",
+          status: "LIVE",
+          teams: 8,
+          players: 96,
+          tagline: "Pilot city",
+          accentImage: "abuja",
+        },
+        {
+          slug: "lagos",
+          name: "Lagos",
+          country: "Nigeria",
+          countryCode: "NG",
+          status: "LIVE",
+          teams: 8,
+          players: 96,
+          tagline: "Lagos chapter",
+          accentImage: "lagos",
+        },
+      ],
+    });
+  });
+
+  async function seedOrganizerForCity(citySlug: string) {
+    const city = await prisma.city.findUniqueOrThrow({ where: { slug: citySlug } });
+    const passwordHash = await hashPassword("OrgSecret123!");
+    const user = await prisma.user.create({
+      data: { email: `org-${citySlug}@devkics.test`, passwordHash, name: "Organizer" },
+    });
+    await prisma.roleAssignment.create({
+      data: { userId: user.id, role: Role.ORGANIZER, cityId: city.id, countryCode: "NG" },
+    });
+    const loginRes = await handleApiRequest(
+      new Request("http://localhost:8080/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: `org-${citySlug}@devkics.test`, password: "OrgSecret123!" }),
+      }),
+    );
+    expect(loginRes?.status).toBe(200);
+    return { user, city, cookies: collectSetCookies(loginRes!) };
+  }
+
+  async function seedAdmin() {
+    const passwordHash = await hashPassword("AdminSecret123!");
+    const user = await prisma.user.create({
+      data: { email: "admin@devkics.test", passwordHash, name: "Admin" },
+    });
+    await prisma.roleAssignment.create({ data: { userId: user.id, role: Role.ADMIN } });
+    const loginRes = await handleApiRequest(
+      new Request("http://localhost:8080/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: "admin@devkics.test", password: "AdminSecret123!" }),
+      }),
+    );
+    expect(loginRes?.status).toBe(200);
+    return { user, cookies: collectSetCookies(loginRes!) };
+  }
+
+  const tournamentBody = {
+    citySlug: "abuja",
+    name: "Abuja Cup 2026",
+    slug: "abuja-cup-2026",
+    season: "2026",
+    format: "Round Robin",
+    venue: "Jabi Turf",
+    summary: "Annual DevKics Abuja tournament.",
+    startDate: "2026-10-01",
+    endDate: "2026-12-01",
+  };
+
+  it("organizer can create a tournament for their own city", async () => {
+    const organizer = await seedOrganizerForCity("abuja");
+
+    const res = await handleApiRequest(
+      new Request("http://localhost:8080/api/tournaments", {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: toCookieHeader(organizer.cookies) },
+        body: JSON.stringify(tournamentBody),
+      }),
+    );
+    expect(res?.status).toBe(201);
+
+    const body = (await res?.json()) as { ok: boolean; tournament: { status: string } };
+    expect(body.ok).toBe(true);
+    expect(body.tournament.status).toBe("draft");
+
+    const record = await prisma.tournament.findFirst({ where: { slug: "abuja-cup-2026" } });
+    expect(record).not.toBeNull();
+    expect(record?.status).toBe(TournamentStatus.DRAFT);
+  });
+
+  it("organizer cannot create a tournament for a different city", async () => {
+    // Organizer scoped to lagos, attempts to create for abuja
+    const organizer = await seedOrganizerForCity("lagos");
+
+    const res = await handleApiRequest(
+      new Request("http://localhost:8080/api/tournaments", {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: toCookieHeader(organizer.cookies) },
+        body: JSON.stringify(tournamentBody), // citySlug: abuja
+      }),
+    );
+    expect(res?.status).toBe(403);
+  });
+
+  it("organizer can advance tournament status from draft to registration-open", async () => {
+    const organizer = await seedOrganizerForCity("abuja");
+
+    // Create tournament first
+    const createRes = await handleApiRequest(
+      new Request("http://localhost:8080/api/tournaments", {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: toCookieHeader(organizer.cookies) },
+        body: JSON.stringify(tournamentBody),
+      }),
+    );
+    expect(createRes?.status).toBe(201);
+    const { tournament } = (await createRes?.json()) as { tournament: { id: string } };
+
+    // Advance to registration-open
+    const patchRes = await handleApiRequest(
+      new Request(`http://localhost:8080/api/tournaments/${tournament.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json", cookie: toCookieHeader(organizer.cookies) },
+        body: JSON.stringify({ status: "registration-open" }),
+      }),
+    );
+    expect(patchRes?.status).toBe(200);
+
+    const updated = await prisma.tournament.findUniqueOrThrow({ where: { id: tournament.id } });
+    expect(updated.status).toBe(TournamentStatus.REGISTRATION_OPEN);
+  });
+
+  it("admin can create and advance a tournament in any city", async () => {
+    const admin = await seedAdmin();
+
+    const createRes = await handleApiRequest(
+      new Request("http://localhost:8080/api/tournaments", {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: toCookieHeader(admin.cookies) },
+        body: JSON.stringify(tournamentBody),
+      }),
+    );
+    expect(createRes?.status).toBe(201);
+    const { tournament } = (await createRes?.json()) as { tournament: { id: string } };
+
+    const patchRes = await handleApiRequest(
+      new Request(`http://localhost:8080/api/tournaments/${tournament.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json", cookie: toCookieHeader(admin.cookies) },
+        body: JSON.stringify({ status: "registration-open" }),
+      }),
+    );
+    expect(patchRes?.status).toBe(200);
+
+    const updated = await prisma.tournament.findUniqueOrThrow({ where: { id: tournament.id } });
+    expect(updated.status).toBe(TournamentStatus.REGISTRATION_OPEN);
+  });
+});

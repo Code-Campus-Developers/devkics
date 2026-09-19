@@ -54,6 +54,7 @@ export function ManagerDashboard() {
     players,
     fixtures,
     organizations,
+    tournaments,
     submitApplication,
     createTeam,
     invitePlayer,
@@ -219,85 +220,104 @@ export function ManagerDashboard() {
           title="Register your team"
           description="Create your corporate team under your approved organization."
         />
-        <form
-          className="mt-8 space-y-5 rounded-3xl border border-border bg-card p-7"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            setIsCreatingTeam(true);
-            try {
-              await createTeam({
-                name: newTeam.name,
-                shortName: newTeam.shortName || newTeam.name.slice(0, 3).toUpperCase(),
-                company: newTeam.company,
-                group: newTeam.group,
-                organizationId: approvedOrganization.id,
-              });
-              toast.success("Team created successfully");
-            } catch (error) {
-              toast.error(error instanceof Error ? error.message : "Unable to create team");
-            } finally {
-              setIsCreatingTeam(false);
-            }
-          }}
-        >
-          <div className="space-y-2">
-            <Label>Team name</Label>
-            <Input
-              required
-              value={newTeam.name}
-              onChange={(e) => setNewTeam({ ...newTeam, name: e.target.value })}
-              placeholder="Interswitch FC"
-            />
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label>Short name (3-4 chars)</Label>
-              <Input
-                required
-                maxLength={4}
-                value={newTeam.shortName}
-                onChange={(e) =>
-                  setNewTeam({ ...newTeam, shortName: e.target.value.toUpperCase() })
+        {(() => {
+          const registrationOpenTournament = tournaments.find(
+            (t) => t.status === "registration-open",
+          );
+          if (!registrationOpenTournament) {
+            return (
+              <div className="mt-8 rounded-3xl border border-border bg-card p-7 text-center space-y-3">
+                <p className="font-semibold">Registration not yet open</p>
+                <p className="text-sm text-muted-foreground">
+                  Your city organizer must create a tournament and open registration before teams
+                  can be registered. Check back once registration is open, or contact your city
+                  organizer directly.
+                </p>
+              </div>
+            );
+          }
+          return (
+            <form
+              className="mt-8 space-y-5 rounded-3xl border border-border bg-card p-7"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setIsCreatingTeam(true);
+                try {
+                  await createTeam({
+                    name: newTeam.name,
+                    shortName: newTeam.shortName || newTeam.name.slice(0, 3).toUpperCase(),
+                    company: newTeam.company,
+                    group: newTeam.group,
+                    organizationId: approvedOrganization.id,
+                  });
+                  toast.success("Team created successfully");
+                } catch (error) {
+                  toast.error(error instanceof Error ? error.message : "Unable to create team");
+                } finally {
+                  setIsCreatingTeam(false);
                 }
-                placeholder="ISW"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Assigned group</Label>
-              <Select
-                value={newTeam.group}
-                onValueChange={(v) => setNewTeam({ ...newTeam, group: v })}
+              }}
+            >
+              <div className="space-y-2">
+                <Label>Team name</Label>
+                <Input
+                  required
+                  value={newTeam.name}
+                  onChange={(e) => setNewTeam({ ...newTeam, name: e.target.value })}
+                  placeholder="Interswitch FC"
+                />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Short name (3-4 chars)</Label>
+                  <Input
+                    required
+                    maxLength={4}
+                    value={newTeam.shortName}
+                    onChange={(e) =>
+                      setNewTeam({ ...newTeam, shortName: e.target.value.toUpperCase() })
+                    }
+                    placeholder="ISW"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Assigned group</Label>
+                  <Select
+                    value={newTeam.group}
+                    onValueChange={(v) => setNewTeam({ ...newTeam, group: v })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="A">Group A</SelectItem>
+                      <SelectItem value="B">Group B</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Company</Label>
+                <Input
+                  required
+                  value={newTeam.company}
+                  onChange={(e) => setNewTeam({ ...newTeam, company: e.target.value })}
+                  placeholder="Interswitch"
+                />
+              </div>
+              <Button
+                type="submit"
+                size="lg"
+                className="w-full rounded-full"
+                loading={isCreatingTeam}
+                loadingText="Creating team..."
+                disabled={isCreatingTeam || !newTeam.name.trim() || !newTeam.company.trim()}
               >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="A">Group A</SelectItem>
-                  <SelectItem value="B">Group B</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="space-y-2">
-            <Label>Company</Label>
-            <Input
-              required
-              value={newTeam.company}
-              onChange={(e) => setNewTeam({ ...newTeam, company: e.target.value })}
-              placeholder="Interswitch"
-            />
-          </div>
-          <Button
-            type="submit"
-            size="lg"
-            className="w-full rounded-full"
-            loading={isCreatingTeam}
-            loadingText="Creating team..."
-            disabled={isCreatingTeam || !newTeam.name.trim() || !newTeam.company.trim()}
-          >
-            Create team
-          </Button>
-        </form>
+                Create team
+              </Button>
+            </form>
+          );
+        })()}
       </div>
     );
   }

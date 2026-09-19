@@ -1962,6 +1962,56 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       }
     }
 
+    if (updated.status === OrganizerApplicationStatus.REJECTED) {
+      try {
+        const notesClause = updated.reviewNotes
+          ? ` The reviewer noted: "${updated.reviewNotes}".`
+          : "";
+        await dispatchNotification(
+          prisma,
+          {
+            recipientUserId: updated.applicantUserId ?? null,
+            recipientEmail: updated.email,
+            createdByUserId: auth.user.id,
+            type: "organizer.application.rejected",
+            title: "DevKics City Organizer Application — Decision",
+            body: `Thank you for your interest in organizing DevKics in ${city?.name ?? updated.city}. After careful review, we are unable to approve your application at this time.${notesClause} You are welcome to reapply in the future or reach out through our public contact channels if you have any questions.`,
+            resourceType: "organizer-application",
+            resourceId: updated.id,
+            email: true,
+          },
+          getEmailTransport(),
+        );
+      } catch (err) {
+        console.error("Failed to dispatch organizer rejection notification:", err);
+      }
+    }
+
+    if (updated.status === OrganizerApplicationStatus.MORE_INFO_REQUIRED) {
+      try {
+        const notesClause = updated.reviewNotes
+          ? ` The reviewer has provided the following feedback: "${updated.reviewNotes}".`
+          : " Please reply to this notification with any additional details that may support your application.";
+        await dispatchNotification(
+          prisma,
+          {
+            recipientUserId: updated.applicantUserId ?? null,
+            recipientEmail: updated.email,
+            createdByUserId: auth.user.id,
+            type: "organizer.application.more-info-required",
+            title: "DevKics City Organizer Application — Additional Information Needed",
+            body: `Your application to organize DevKics in ${city?.name ?? updated.city} is under review.${notesClause} Please respond at your earliest convenience to help us complete our assessment.`,
+            resourceType: "organizer-application",
+            resourceId: updated.id,
+            email: true,
+          },
+          getEmailTransport(),
+        );
+      } catch (err) {
+        console.error("Failed to dispatch organizer more-info notification:", err);
+      }
+    }
+
     return jsonResponse(
       200,
       { ok: true, application: mapApplicationPayload(updated) },

@@ -219,6 +219,16 @@ interface StoreValue {
   }) => Promise<City>;
   updateCityStatus: (slug: string, status: City["status"]) => Promise<void>;
   resetDemo: () => Promise<void>;
+  createTournament: (input: {
+    name: string;
+    season: string;
+    format: string;
+    venue: string;
+    summary: string;
+    startDate: string;
+    endDate: string;
+  }) => Promise<Tournament>;
+  updateTournamentStatus: (tournamentId: string, status: Tournament["status"]) => Promise<void>;
 }
 
 const StoreContext = createContext<StoreValue | null>(null);
@@ -1093,6 +1103,38 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
     await Promise.all([refreshDomain(), refreshSession()]);
   }, [refreshDomain, refreshSession]);
 
+  const createTournament = useCallback<StoreValue["createTournament"]>(
+    async (input) => {
+      if (!citySlug) throw new Error("City context required to create a tournament.");
+      const slug = input.name
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "");
+      const payload = await api<{ tournament: Tournament }>("/api/tournaments", {
+        method: "POST",
+        body: JSON.stringify({ ...input, citySlug, slug }),
+      });
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.tournaments });
+      return payload.tournament;
+    },
+    [citySlug, queryClient],
+  );
+
+  const updateTournamentStatus = useCallback<StoreValue["updateTournamentStatus"]>(
+    async (tournamentId, status) => {
+      await api<{ tournament: Tournament }>(
+        `/api/tournaments/${encodeURIComponent(tournamentId)}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ status }),
+        },
+      );
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.tournaments });
+    },
+    [queryClient],
+  );
+
   const teams = teamsQuery.isError ? seed.teams : (teamsQuery.data ?? []);
   const players = !currentUser ? [] : (playersQuery.data ?? []);
   const fixtures = fixturesQuery.isError ? seed.fixtures : (fixturesQuery.data ?? []);
@@ -1151,6 +1193,8 @@ export function DevKicsProvider({ children }: { children: ReactNode }) {
     createCity,
     updateCityStatus,
     resetDemo,
+    createTournament,
+    updateTournamentStatus,
   };
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
